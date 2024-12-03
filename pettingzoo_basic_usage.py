@@ -12,5 +12,5 @@ for agent in env.agent_iter():
         # this is where you would insert your policy
         action = env.action_space(agent).sample()
 
-    env.step(action)
+    env.step(action)  # sekventiella beslut
 env.close()
