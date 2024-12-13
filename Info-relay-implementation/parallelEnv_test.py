@@ -2,6 +2,7 @@ from Info_relay import CustomEnvironment
 
 from pettingzoo.test import parallel_api_test
 
+# https://pettingzoo.farama.org/content/environment_tests/
 if __name__ == "__main__":
     env = CustomEnvironment()
     parallel_api_test(env, num_cycles=1_000_000)

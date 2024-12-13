@@ -5,17 +5,28 @@ from gymnasium import spaces # spaces for action/observation
 import numpy as np
 from copy import copy
 
+from Info_relay_classes import Drone, Base, Emitter, World
+
+
+# class of agents (where drones and emitters(bases are included)) - boolean that shows dynamics or not - future we can have ground/air as well
+# vectorized stepping function 
+
+#maybe store all agents (drones + bases + emitters)
+
+#fullständig info, fixed antal agenter i början - coop spel
+
+ 
 
 
 ##ide: ska det vara egna agent / emitter classer, eller ska allt ingå i env:et?
 
-class CustomEnvironment(ParallelEnv):
+class Info_relay(ParallelEnv):
     metadata = {
-        "name": "custom_environment_v0",
+        "name": "Info_relay_v0",
     }
 
     def __init__(self, num_agents = 10, num_bases = 2, num_emitters = 3, world_size = 100,
-                 a_max = 1, omega_max = 1, step_size = 0.01):
+                 a_max = 1.0, omega_max = 1, step_size = 0.01, max_iter = 10):
         self.n_agents = num_agents
         self.num_bases = num_bases
         self.num_emitters = num_emitters
@@ -24,7 +35,7 @@ class CustomEnvironment(ParallelEnv):
 
 
         self.h = step_size
-        self.max_iter = 10 # change 
+        self.max_iter = max_iter # maximum amount of iterations before the world truncates 
 
 
         # these three following inits maybe should be in reset() instead?
@@ -103,6 +114,15 @@ class CustomEnvironment(ParallelEnv):
         # the observation has to include the agent's position, as well as all other agents they can observe
 
         return None, None # while testing
+    
+    # något liknande kan användas för att separera drönare/baser etc?
+    """# return all agents that are not adversaries
+    def good_agents(self, world):
+        return [agent for agent in world.agents if not agent.adversary]
+
+    # return all adversarial agents
+    def adversaries(self, world):
+        return [agent for agent in world.agents if agent.adversary]"""
 
     def step(self, actions):
         
@@ -137,21 +157,20 @@ class CustomEnvironment(ParallelEnv):
 
         # handle truncation - save as dict of dicts?
         #OBS - maybe truncations (and terminations/rewards) HAS to be one dict to fit with pettingzoo?
-        truncations = {}
-        truncations["agents"] = {agent: False for agent in self.agents}
-        truncations["bases"] = {base: False for base in self.bases}
-        truncations["emitters"] = {emitter: False for emitter in self.emitters}
+        truncations = {entity: False for entity in self.agents + self.bases + self.emitters}
+        #truncations["agents"] = {agent: False for agent in self.agents}
+        #truncations["bases"] = {base: False for base in self.bases}
+        #truncations["emitters"] = {emitter: False for emitter in self.emitters}
         if self.timestep > self.max_iter:
             rewards["agents"] = {agent: 0 for agent in self.agents} # maybe add reward for bases/emitters later on 
             # now rewards is dict of dicts - can be just dict as only agents get rewards at this stage
-            truncations["agents"] = {agent: True for agent in self.agents}
-            truncations["bases"] = {base: True for base in self.bases}
-            truncations["emitters"] = {emitter: True for emitter in self.emitters}
+            truncations = {entity: True for entity in self.agents + self.bases + self.emitters}
             self.agents = []
             self.bases = []
             self.emitters = []
 
-
+        self.timestep += 1
+        
         # generate new observations
 
         if self.render_mode == "human":
