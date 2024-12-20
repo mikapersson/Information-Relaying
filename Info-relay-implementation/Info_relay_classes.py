@@ -9,11 +9,11 @@ Taken from pettingzoo MPE and altered
 class EntityState:  # physical/external base state of all entities
     def __init__(self):
         # physical position
-        self.p_pos = None
+        self.p_pos = None 
         # physical velocity
         self.p_vel = None
         # communication utterance
-        self.c = None
+        self.c = None # OBS init all agent with the same (ID)!!!
         # transmitting if True, listening if False. 
         #self.sending = False # obs kalla denna self.c som i envet? eller kanske modda envet?
 
@@ -25,6 +25,7 @@ class DroneState(EntityState):  # state of agents (including communication and i
         #self.c = None
         # angle of antenna relative drone body (relative global coords)
         self.theta = None
+
 
 class Action:
     def __init__(self):
@@ -64,6 +65,8 @@ class Entity:  # properties and state of physical world entity
         # the agent cannot send communication (different from self.c i state/action??)
         self.silent = False
 
+        self.transmit_power = 1 # in SNR calculation
+
     #@property
     #def mass(self):
     #    return self.initial_mass
@@ -102,6 +105,8 @@ class Drone(Entity):  # properties of agent entities
 
         # state
         self.state = DroneState()
+        #self.state.p_pos = None # add it here to try to solve bug were all agents' positions have the same id
+
         # action
         self.action = DroneAction()
         # script behavior to execute
@@ -158,7 +163,11 @@ class World:  # multi-agent world
         for agent in self.scripted_agents:
             agent.action = agent.action_callback(agent, self)
 
-        self.apply_process_model_2_drones()
+        for i, agent in enumerate(self.agents):
+            # used to check correct init (uniqe) id's for all agents
+            #print(f"Agent {agent.name} p_pos id: {id(agent.state.c)}")
+
+            self.apply_process_model_2_drones(agent)
 
         
             
@@ -194,36 +203,37 @@ class World:  # multi-agent world
 
 
     # the simpler model without acceleration - here action is setting the new velocity (and omega)
-    def apply_process_model_2_drones(self):
-        for i, agent in enumerate(self.all_agents):
-            if not agent.movable: # skip enteties that can't move - currently bases and emitters 
-                continue
-            # assumes velocity is set immediatly - realistic?
-            #print(agent.action.u)
-            agent.state.p_vel = agent.action.u[:2] # u[:2] contains velocity in x, y directions
- 
-            # stochastic control noise
-            noise_scale = (np.array([self.sigma_x, self.sigma_y]) * agent.state.p_vel * self.dt)**2
-            agent.state.p_vel += np.random.normal(loc = 0, scale = noise_scale, size = (2,)) # the noice
-            
-            theta_action_dt = agent.action.u[2] * self.dt
-            theta_noise = np.random.normal(loc = 0, scale = (self.sigma_omgea*theta_action_dt)**2)
-            agent.state.theta += theta_action_dt + theta_noise
-            #ensures that theta is bounded in [0,2pi)
-            agent.state.theta %= (2*np.pi)
+    def apply_process_model_2_drones(self, agent):
+        if not agent.movable: # skip enteties that can't move - currently bases and emitters 
+            return
+        
+        # assumes velocity is set immediatly - realistic?
+        #print(agent.action.u)
+        agent.state.p_vel = np.array(agent.action.u[:2]) # u[:2] contains velocity in x, y directions
 
-            # ensure that max-speed is enforced
-            if agent.max_speed is not None:
-                speed = np.sqrt(np.square(agent.state.p_vel[0]) + np.square(agent.state.p_vel[1]))
-                if speed > agent.max_speed:
-                    agent.state.p_vel = (
-                        agent.state.p_vel / np.sqrt(
-                            np.square(agent.state.p_vel[0])
-                            + np.square(agent.state.p_vel[1])
-                        ) * agent.max_speed)
-                    
-            ## now the position is updated
-            agent.state.p_pos += agent.state.p_vel * self.dt 
+        # stochastic control noise (gaussian)
+        noise_scale = (np.array([self.sigma_x, self.sigma_y]) * agent.state.p_vel * self.dt)**2
+        agent.state.p_vel += np.random.normal(loc = 0, scale = noise_scale, size = (2,)) 
+        
+        theta_action_dt = agent.action.u[2] * self.dt
+        theta_noise = np.random.normal(loc = 0, scale = (self.sigma_omgea*theta_action_dt)**2)
+        agent.state.theta += theta_action_dt + theta_noise
+        #ensures that theta is bounded in [0,2pi)
+        agent.state.theta %= (2*np.pi)
+        # ensure that max-speed is enforced
+        if agent.max_speed is not None:
+            speed = np.sqrt(np.square(agent.state.p_vel[0]) + np.square(agent.state.p_vel[1]))
+            if speed > agent.max_speed:
+                agent.state.p_vel = (
+                    agent.state.p_vel / np.sqrt(
+                        np.square(agent.state.p_vel[0])
+                        + np.square(agent.state.p_vel[1])
+                    ) * agent.max_speed)
+        
+        ## now the position is updated
+        agent.state.p_pos += agent.state.p_vel * self.dt 
+
+        
 
     # impleent later when bases and emitters start moving - or use the same as drones if they have similar charachteristics
     def apply_process_model_2_others(self):

@@ -1,4 +1,8 @@
+import os
+
 from pettingzoo import ParallelEnv
+
+import gymnasium
 
 from gymnasium import spaces # spaces for action/observation
 
@@ -9,6 +13,9 @@ from Info_relay_classes import Drone, Base, Emitter, World
 
 from gymnasium.utils import seeding
 
+# to render basic graphics
+import pygame
+
 
 # class of agents (where drones and emitters(bases are included)) - boolean that shows dynamics or not - future we can have ground/air as well
 # vectorized stepping function 
@@ -18,24 +25,43 @@ from gymnasium.utils import seeding
 #fullständig info, fixed antal agenter i början - coop spel
 
  
-
+alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 
 ##ide: ska det vara egna agent / emitter classer, eller ska allt ingå i env:et?
 
 class Info_relay_env(ParallelEnv):
     metadata = {
         "name": "Info_relay_v2",
+        "render_fps": 1
     }
 
-    def __init__(self, num_agents = 10, num_bases = 2, num_emitters = 3, world_size = 100,
-                 a_max = 1.0, omega_max = 1.0, step_size = 0.01, max_iter = 10):
+    def __init__(self, num_agents = 10, num_bases = 2, num_emitters = 3, world_size = 1,
+                 a_max = 100.0, omega_max = 1.0, step_size = 0.1, max_iter = 25):
+        
+        self.render_mode = None
+        pygame.init()
+        self.viewer = None
+        self.width = 700
+        self.height = 700
+        self.screen = pygame.Surface([self.width, self.height])
+        self.max_size = 1
+        #self.game_font = pygame.freetype.Font(
+        #    os.path.join(os.path.dirname(__file__), "secrcode.ttf"), 24)
+        #self.game_font = pygame.font.Font(None, 24)
+        self.game_font = pygame.freetype.SysFont('Arial', 24)
+
+        # Set up the drawing window
+
+        self.renderOn = False
+
+
         self.n_agents = num_agents
         self.num_bases = num_bases
         self.num_emitters = num_emitters
         self.a_max = a_max
         self.omega_max = omega_max
 
-        self.eta = 1 # controls the probability of detecting the signal ~ threshold
+        self.SNR_threshold = 1 # threshold for signa detection
 
         self.render_mode = None # OBS fix - or maybe have as option in reset!
         self.world_size = world_size # the world will be created as square.
@@ -83,19 +109,20 @@ class Info_relay_env(ParallelEnv):
         world.agents = [Drone() for _ in range(num_agents)]
         for i, agent in enumerate(world.agents):
             agent.name = f"agent_{i}"
-            agent.size = 0.25 #quite small
+            agent.size = 0.025 #quite small
             agent.max_speed = 1.0 # can be cnahged later! or different for differnt agents
             agent.u_range = [self.a_max, self.omega_max] # maximum control range = a_max, omega_max
             agent.internal_noise = 1 ## set internal noise level
-            agent.color = np.array([0.25, 0.25, 0.25])
+            agent.color = np.array([0, 0.33, 0.67])
 
         world.bases = [Base() for _ in range(num_bases)]
         for i, base in enumerate(world.bases):
             base.name = f"base_{i}"
-            base.size = 0.75 # the biggest pieces in the world
-            base.color = np.array([0.85, 0.35, 0.35])
+            base.size = 0.075 # the biggest pieces in the world
+            base.color = np.array([0.35, 0.35, 0.35])
 
-        world.emitters = [Emitter() for _ in range(num_emitters)]
+        world.emitters = [Emitter()]
+        #world.emitters = [Emitter() for _ in range(num_emitters)]
         for i, emitter in enumerate(world.emitters):
             emitter.name = f"emitter_{i}"
             emitter.color = np.array([0.35, 0.85, 0.35])
@@ -113,17 +140,20 @@ class Info_relay_env(ParallelEnv):
             base.state.p_vel = np.zeros(world.dim_p)
 
         for i, emitter in enumerate(world.emitters):
-            emitter.state.p_pos = np_random.uniform(0, self.world_size, world.dim_p)
+            #emitter.state.p_pos = np_random.uniform(0, self.world_size, world.dim_p)
+            emitter.state.p_pos = np.zeros(world.dim_p)
             emitter.state.p_vel = np.zeros(world.dim_p)
 
         for i, agent in enumerate(world.agents):
-            agent.state.p_pos = world.bases[0].state.p_pos # see if this works - all should start at the first base
-            agent.state.p_vel = np.zeros(world.dim_p) 
+            agent.state.p_pos = np.array(world.bases[0].state.p_pos) # see if this works - all should start at the first base
+            agent.state.p_vel = np.zeros(world.dim_p) # now 2d
             agent.state.theta = 0.0 # should this just be one number? or still nparray?
         
 
-    def reset(self, seed=None, options=None):
+    def reset(self, seed=None, options=None): # options is dictionary
 
+        self.render_mode = options["render_mode"]
+        
         if seed is not None:
             self._seed(seed=seed)
         
@@ -137,6 +167,7 @@ class Info_relay_env(ParallelEnv):
 
         self.agents = copy(self.possible_agents)
 
+        # ALl this might only be useful (needed) to AEC envs - might use here anyway
         self.rewards = {name: 0.0 for name in self.agents}
         self._cumulative_rewards = {name: 0.0 for name in self.agents}
         self.terminations = {name: False for name in self.agents}
@@ -152,8 +183,9 @@ class Info_relay_env(ParallelEnv):
 
         ## obs create observation!
         # the observation has to include the agent's position, as well as all other agents they can observe
+        observations = self.observe_all()
 
-        return None, None # while testing
+        return observations, self.infos # while testing
    
     
     #sets the actions for each agent - another function will describe bases/emitters
@@ -171,7 +203,7 @@ class Info_relay_env(ParallelEnv):
 
 
     def step(self, actions):
-        
+       
         rewards = {}    
         
         #self.current_actions = actions # obs actions are a dictionary!!
@@ -193,7 +225,7 @@ class Info_relay_env(ParallelEnv):
         self.world.step() # the world controls the motion of the agents - (also controls communication ?)
         print("world step done")
 
-        ## here we can look at the rewards - after world step
+        ## here we can look at the rewards - after world step - could be done after observations instead!
         for agent in self.world.agents:
             rewards[agent.name] = float(self.reward(agent))
 
@@ -223,10 +255,9 @@ class Info_relay_env(ParallelEnv):
         # generate new observations
         #observations = {agent.name: None for agent in self.world.agents}
         observations = self.observe_all() # call this when implemented
-        print(observations)
-        
+        #print(observations)
 
-        self.full_absolute_observation(self.world.agents[0])
+        #self.full_absolute_observation(self.world.agents[0])
 
         # render if wanted
         if self.render_mode == "human":
@@ -254,14 +285,36 @@ class Info_relay_env(ParallelEnv):
             return min(np.exp(2 * x - 2), 10)
     
 
-    def calculate_prob_detection(self, SNR):
-        eta = self.eta 
+    def check_signal_detection(self, agent, other): # detection or not based on SNR
+        SNR = self.calculate_SNR(agent, other)
+        if SNR > self.SNR_threshold:
+            return True # signal detected
+        else:
+            return False # signal not detected
         
     def calculate_SNR(self, agent, other):
+        # agent is reciever, r, other is transmitter, t
         SNR = 0
-        rel_pos = agent.state.p_pos - other.state.p_pos
+        rel_pos = other.state.p_pos - agent.state.p_pos # t - r
+      
         alpha = np.arctan(rel_pos[1]/rel_pos[0]) # the angle between x-axis and the line bweteen the drones
-        ## if-satser för att kolla hur phi ska räknas ut
+       
+        #OBS - REDO as there is something wrong with the angle calculations
+
+        phi_r = alpha - agent.state.theta 
+        if isinstance(other, Base):# other in self.world.bases: # or other in self.world.emitters:
+            phi_t = 0 ## bases and emitter send in all directions with the same power 
+        else:
+            phi_t = alpha - other.state.theta + np.pi
+        
+        if abs(phi_r) > np.pi/2 or abs(phi_t) > np.pi/2: # the drones do not look at each other
+            SNR = 0
+        else:
+            SNR = other.transmit_power * np.cos(phi_t) * np.cos(phi_r) / (
+                np.linalg.norm(rel_pos) * agent.internal_noise)**2
+
+        #print("SNR: ", SNR)
+
         return SNR
 
     def full_absolute_observation(self, agent):
@@ -282,6 +335,7 @@ class Info_relay_env(ParallelEnv):
         base_pos = []
         for base in self.world.bases:
             base_pos.append(base.state.p_pos)
+            signal_detected = self.check_signal_detection(agent, base)
             ## the probability of detecting this signal is prop to distance and noise, 
             # the direction of only the agent's antenna --> cos(\phi_r) = 1 
 
@@ -297,6 +351,8 @@ class Info_relay_env(ParallelEnv):
 
                 #communication part
                 # first check if signal is detected, then add all detected signals to the observations
+                signal_detected = self.check_signal_detection(agent, other)
+                # now add the signal to comm list
                 
 
         ## OBS really need to dubbelcheck if this is the most efficient way to store observations
@@ -333,9 +389,9 @@ class Info_relay_env(ParallelEnv):
         return {agent.name: self.observe(agent) for agent in self.world.agents}
 
 
-    def render(self):
-        pass # try to import something already done?
-            # or maybe use basic graphics in python for simplicity - later unity 
+    #def render(self):
+    #    pass # try to import something already done?
+    #        # or maybe use basic graphics in python for simplicity - later unity 
 
 
     def _seed(self, seed=None):
@@ -347,3 +403,87 @@ class Info_relay_env(ParallelEnv):
 
     def action_space(self, agent):
         return self.action_spaces[agent]
+    
+    def enable_render(self, mode="human"):
+        if not self.renderOn and mode == "human":
+            self.screen = pygame.display.set_mode(self.screen.get_size())
+            self.clock = pygame.time.Clock()
+            self.renderOn = True
+
+    def render(self):
+        if self.render_mode is None:
+            gymnasium.logger.warn(
+                "You are calling render method without specifying any render mode."
+            )
+            return
+
+        self.enable_render(self.render_mode)
+
+        self.draw()
+        if self.render_mode == "rgb_array":
+            observation = np.array(pygame.surfarray.pixels3d(self.screen))
+            return np.transpose(observation, axes=(1, 0, 2))
+        elif self.render_mode == "human":
+            pygame.display.flip()
+            self.clock.tick(self.metadata["render_fps"])
+            return
+
+    def draw(self):
+        # clear screen
+        self.screen.fill((255, 255, 255))
+
+        # update bounds to center around agent
+        all_poses = [entity.state.p_pos for entity in self.world.entities]
+        cam_range = np.max(np.abs(np.array(all_poses)))
+
+        # update geometry and text positions
+        text_line = 0
+        for e, entity in enumerate(self.world.entities):
+            # geometry
+            x, y = entity.state.p_pos
+            y *= (
+                -1
+            )  # this makes the display mimic the old pyglet setup (ie. flips image)
+            x = (
+                (x / cam_range) * self.width // 2 * 0.9
+            )  # the .9 is just to keep entities from appearing "too" out-of-bounds
+            y = (y / cam_range) * self.height // 2 * 0.9
+            x += self.width // 2
+            y += self.height // 2
+            pygame.draw.circle(
+                self.screen, entity.color * 200, (x, y), entity.size * 350
+            )  # 350 is an arbitrary scale factor to get pygame to render similar sizes as pyglet
+            pygame.draw.circle(
+                self.screen, (0, 0, 0), (x, y), entity.size * 350, 1
+            )  # borders
+            assert (
+                0 < x < self.width and 0 < y < self.height
+            ), f"Coordinates {(x, y)} are out of bounds."
+
+            # text
+            if isinstance(entity, Drone):
+                if entity.silent:
+                    continue
+                if np.all(entity.state.c == 0):
+                    word = "_"
+                elif entity.state.c == None:
+                    word = "communication state not defined"
+                else:
+                    word = (
+                        "[" + ",".join([f"{comm:.2f}" for comm in entity.state.c]) + "]"
+                    )
+                #else:
+                    #word = alphabet[np.argmax(entity.state.c)]
+
+                message = entity.name + " sends " + word + "   "
+                message_x_pos = self.width * 0.05
+                message_y_pos = self.height * 0.95 - (self.height * 0.05 * text_line)
+                self.game_font.render_to(
+                    self.screen, (message_x_pos, message_y_pos), message, (0, 0, 0)
+                )
+                text_line += 1
+
+    def close(self):
+        if self.screen is not None:
+            pygame.quit()
+            self.screen = None
