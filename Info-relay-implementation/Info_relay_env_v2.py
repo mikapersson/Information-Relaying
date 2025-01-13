@@ -36,7 +36,7 @@ class Info_relay_env(ParallelEnv):
     }
 
     def __init__(self, num_agents = 10, num_bases = 2, num_emitters = 3, world_size = 1,
-                 a_max = 100.0, omega_max = 1.0, step_size = 0.1, max_iter = 25):
+                 a_max = 100.0, omega_max = 10.0, step_size = 0.1, max_iter = 25):
         
         self.render_mode = None
         pygame.init()
@@ -61,10 +61,10 @@ class Info_relay_env(ParallelEnv):
         self.a_max = a_max
         self.omega_max = omega_max
 
-        self.SNR_threshold = 1 # threshold for signa detection
+        self.SNR_threshold = 1 # threshold for signal detection
 
         self.render_mode = None # OBS fix - or maybe have as option in reset!
-        self.world_size = world_size # the world will be created as square.
+        self.world_size = world_size # the world will be created as square. - maybe not used now
 
         self.h = step_size
         self.max_iter = max_iter # maximum amount of iterations before the world truncates 
@@ -115,17 +115,23 @@ class Info_relay_env(ParallelEnv):
             agent.internal_noise = 1 ## set internal noise level
             agent.color = np.array([0, 0.33, 0.67])
 
+            agent.transmit_power = 1 # set to reasonable levels
+
         world.bases = [Base() for _ in range(num_bases)]
         for i, base in enumerate(world.bases):
             base.name = f"base_{i}"
             base.size = 0.075 # the biggest pieces in the world
             base.color = np.array([0.35, 0.35, 0.35])
 
+            base.transmit_power = 1 # set to reasonable levels
+
         world.emitters = [Emitter()]
         #world.emitters = [Emitter() for _ in range(num_emitters)]
         for i, emitter in enumerate(world.emitters):
             emitter.name = f"emitter_{i}"
             emitter.color = np.array([0.35, 0.85, 0.35])
+
+            emitter.transmit_power = 1 # set to reasonable levels
 
         return world
     
@@ -136,11 +142,11 @@ class Info_relay_env(ParallelEnv):
         Randomly distributes the bases and emitters - all drones start at one of the bases (first in list)
         """
         for i, base in enumerate(world.bases):
-            base.state.p_pos = np_random.uniform(0, self.world_size, world.dim_p)
+            base.state.p_pos = np_random.uniform(-self.world_size, self.world_size, world.dim_p)
             base.state.p_vel = np.zeros(world.dim_p)
 
         for i, emitter in enumerate(world.emitters):
-            #emitter.state.p_pos = np_random.uniform(0, self.world_size, world.dim_p)
+            #emitter.state.p_pos = np_random.uniform(-self.world_size, self.world_size, world.dim_p)
             emitter.state.p_pos = np.zeros(world.dim_p)
             emitter.state.p_vel = np.zeros(world.dim_p)
 
@@ -151,8 +157,9 @@ class Info_relay_env(ParallelEnv):
         
 
     def reset(self, seed=None, options=None): # options is dictionary
-
-        self.render_mode = options["render_mode"]
+        
+        if options is not None:
+            self.render_mode = options["render_mode"]
         
         if seed is not None:
             self._seed(seed=seed)
@@ -199,7 +206,6 @@ class Info_relay_env(ParallelEnv):
             agent.action.u[2] = action[2] # omega, controls theta
 
         ##set communication action(s) - only if to send or not to send?? direction is controlled by u[2]
-
 
 
     def step(self, actions):
@@ -270,13 +276,12 @@ class Info_relay_env(ParallelEnv):
     
     def reward(self, agent): ## OBS this could be put into the Scenario class
         """ 
-        The reward given to each agent - could be made up of multiple different rewards in different fucntions
+        The reward given to each agent - could be made up of multiple different rewards in different functions
         """
         return 0.0 # just for testing
-        pass
 
 
-    ## some version of this could be used in the beginning so that agents do nt run away by mistake?
+    ## some version of this could be used in the beginning so that agents dont run away by mistake?
     def bound(x):
             if x < 0.9:
                 return 0
@@ -285,7 +290,7 @@ class Info_relay_env(ParallelEnv):
             return min(np.exp(2 * x - 2), 10)
     
 
-    def check_signal_detection(self, agent, other): # detection or not based on SNR
+    def check_signal_detection(self, agent, other): # detection or not - based on SNR
         SNR = self.calculate_SNR(agent, other)
         if SNR > self.SNR_threshold:
             return True # signal detected
@@ -297,15 +302,22 @@ class Info_relay_env(ParallelEnv):
         SNR = 0
         rel_pos = other.state.p_pos - agent.state.p_pos # t - r
       
-        alpha = np.arctan(rel_pos[1]/rel_pos[0]) # the angle between x-axis and the line bweteen the drones
-       
-        #OBS - REDO as there is something wrong with the angle calculations
+        #alpha = np.arctan(rel_pos[1]/rel_pos[0]) # the angle between x-axis and the line bweteen the drones
+        #testar en annan arctan func
+        if isinstance(agent, Base): # for when bases check for detection
+            phi_r = 0
+        else:
+            alpha = np.arctan2(rel_pos[1], rel_pos[0]) #alpha is the angle between x-axis and the line between the drones
 
-        phi_r = alpha - agent.state.theta 
-        if isinstance(other, Base):# other in self.world.bases: # or other in self.world.emitters:
+            phi_r = alpha - agent.state.theta 
+            phi_r = np.arctan2(np.sin(phi_r), np.cos(phi_r)) # normalize phi to between [-pi,pi]
+        
+        if isinstance(other, Base) or isinstance(other, Emitter):
             phi_t = 0 ## bases and emitter send in all directions with the same power 
         else:
             phi_t = alpha - other.state.theta + np.pi
+            #phi_t = alpha - other.state.theta 
+            phi_t = np.arctan2(np.sin(phi_t), np.cos(phi_t))
         
         if abs(phi_r) > np.pi/2 or abs(phi_t) > np.pi/2: # the drones do not look at each other
             SNR = 0
@@ -313,9 +325,24 @@ class Info_relay_env(ParallelEnv):
             SNR = other.transmit_power * np.cos(phi_t) * np.cos(phi_r) / (
                 np.linalg.norm(rel_pos) * agent.internal_noise)**2
 
-        #print("SNR: ", SNR)
+        #print(f"reciever {agent.name}, transmitter {other.name}, phi_r/phi_t: {phi_r}/{phi_t} SNR: ", SNR)
 
         return SNR
+    
+    def base_observation(self, base): # anropa i reward-funktionen?
+        """
+        The base check if any signals are detected and if any of them are correctly delivered. Returns true if correct signal detected?
+        """
+
+        for other in self.world.bases:
+            if other is base:
+                continue
+            if self.check_signal_detection(other): # if signal detected
+                pass
+
+        for agent in self.world.agents:
+            if self.check_signal_detection(agent):
+                pass
 
     def full_absolute_observation(self, agent):
         """
@@ -335,7 +362,9 @@ class Info_relay_env(ParallelEnv):
         base_pos = []
         for base in self.world.bases:
             base_pos.append(base.state.p_pos)
-            signal_detected = self.check_signal_detection(agent, base)
+            signal_detected = self.check_signal_detection(agent, base) # OBS måste kolla ifall signal sänds också
+            if signal_detected: # add communication - later
+                pass
             ## the probability of detecting this signal is prop to distance and noise, 
             # the direction of only the agent's antenna --> cos(\phi_r) = 1 
 
@@ -351,8 +380,10 @@ class Info_relay_env(ParallelEnv):
 
                 #communication part
                 # first check if signal is detected, then add all detected signals to the observations
-                signal_detected = self.check_signal_detection(agent, other)
+                signal_detected = self.check_signal_detection(agent, other) # OBS måste kolla ifall signal sänds också
                 # now add the signal to comm list
+                if signal_detected:
+                    pass
                 
 
         ## OBS really need to dubbelcheck if this is the most efficient way to store observations
@@ -428,7 +459,7 @@ class Info_relay_env(ParallelEnv):
             self.clock.tick(self.metadata["render_fps"])
             return
 
-    def draw(self):
+    def draw(self): 
         # clear screen
         self.screen.fill((255, 255, 255))
 
@@ -460,9 +491,28 @@ class Info_relay_env(ParallelEnv):
                 0 < x < self.width and 0 < y < self.height
             ), f"Coordinates {(x, y)} are out of bounds."
 
-            # text
+            # text - and direction of antenna
             if isinstance(entity, Drone):
-                if entity.silent:
+                
+                # drawing the arrow - direction of antenna
+                arrow_length = 25  # length of the arrow
+                theta = entity.state.theta
+                end_x = x + arrow_length * np.cos(theta)
+                end_y = y - arrow_length * np.sin(theta)  # subtract because of flipped y-axis
+
+                pygame.draw.line(self.screen, (0, 0, 0), (x, y), (end_x, end_y), 2)  # arrow shaft
+                
+                # the arrowhead is drawn as an polygon
+                head_length = 7  # length of the arrowhead
+                head_angle = np.pi / 6  # angle of the arrowhead
+                left_x = end_x - head_length * np.cos(theta - head_angle)
+                left_y = end_y + head_length * np.sin(theta - head_angle)  # flipped y-axis
+                right_x = end_x - head_length * np.cos(theta + head_angle)
+                right_y = end_y + head_length * np.sin(theta + head_angle)  # flipped y-axis
+                pygame.draw.polygon(
+                self.screen, (0, 0, 0), [(end_x, end_y), (left_x, left_y), (right_x, right_y)])
+
+                if entity.silent: # kanske rita tysta drönare annorlunda? eller markera sändning på ett visst visuellt sätt
                     continue
                 if np.all(entity.state.c == 0):
                     word = "_"

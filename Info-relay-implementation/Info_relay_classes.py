@@ -140,7 +140,7 @@ class World:  # multi-agent world
     # return all entities in the world
     @property
     def entities(self):
-        return self.agents + self.bases + self.emitters
+        return self.bases + self.emitters + self.agents # the agents are last here so that they are drawn last
     
     # return all agents in the world
     @property
