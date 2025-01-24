@@ -36,9 +36,9 @@ class Info_relay_env(ParallelEnv):
     }
 
     def __init__(self, num_agents = 10, num_bases = 2, num_emitters = 3, world_size = 1,
-                 a_max = 100.0, omega_max = 10.0, step_size = 0.1, max_iter = 25):
+                 a_max = 100.0, omega_max = 10.0, step_size = 0.1, max_iter = 25, render_mode = None):
         
-        self.render_mode = None
+        self.render_mode = render_mode
         pygame.init()
         self.viewer = None
         self.width = 700
@@ -63,7 +63,6 @@ class Info_relay_env(ParallelEnv):
 
         self.SNR_threshold = 1 # threshold for signal detection
 
-        self.render_mode = None # OBS fix - or maybe have as option in reset!
         self.world_size = world_size # the world will be created as square. - maybe not used now
 
         self.h = step_size
@@ -74,17 +73,18 @@ class Info_relay_env(ParallelEnv):
         # set all World variables first - contains all enteties
         self.world = self.make_world(num_agents, num_bases, num_emitters)
 
-
         #self.agents = [agent.name for agent in self.world.agents]
         self.possible_agents = [agent.name for agent in self.world.agents] # self.agents[:]
         
         #all agents get their own obs/action spaces - stored in a Dict structure 
         #obs bases should observe for masseges aswell, right? They can use the same obs_space with different masking 
+        dim_p = self.world.dim_p 
         self.observation_spaces = spaces.Dict(
-            {agent: spaces.Box(low = 0.0, high = 1.0, 
-            shape = (self.n_agents + self.num_bases + self.num_emitters,), dtype = np.float64) 
+            {agent: spaces.Box(low = -np.inf, high = np.inf, 
+            shape = (2+dim_p*self.n_agents + dim_p*self.num_bases + dim_p*self.num_emitters,), dtype = np.float64)  
             for agent in self.possible_agents} ## kanske BOX(num total agents+other)?
-        ) #OBS!! fixa till och dubbelkolla - behöver även kunna observera meddelanden? Hur kodas?
+            #shape: the positions of all enteties in the world as well as the velocity of itself
+        ) #OBS!! fixa till och dubbelkolla - behöver även kunna observera meddelanden? Hur kodas? #OBS!! fixa till och dubbelkolla - behöver även kunna observera meddelanden? Hur kodas?
 
         self.action_spaces = spaces.Dict({agent: spaces.Box(
             low = np.array([-self.a_max, -self.a_max, -self.omega_max]), 
@@ -125,7 +125,7 @@ class Info_relay_env(ParallelEnv):
 
             base.transmit_power = 1 # set to reasonable levels
 
-        world.emitters = [Emitter()]
+        world.emitters = []
         #world.emitters = [Emitter() for _ in range(num_emitters)]
         for i, emitter in enumerate(world.emitters):
             emitter.name = f"emitter_{i}"
@@ -146,8 +146,8 @@ class Info_relay_env(ParallelEnv):
             base.state.p_vel = np.zeros(world.dim_p)
 
         for i, emitter in enumerate(world.emitters):
-            #emitter.state.p_pos = np_random.uniform(-self.world_size, self.world_size, world.dim_p)
-            emitter.state.p_pos = np.zeros(world.dim_p)
+            emitter.state.p_pos = np_random.uniform(-self.world_size, self.world_size, world.dim_p)
+            #emitter.state.p_pos = np.zeros(world.dim_p)
             emitter.state.p_vel = np.zeros(world.dim_p)
 
         for i, agent in enumerate(world.agents):
@@ -156,10 +156,10 @@ class Info_relay_env(ParallelEnv):
             agent.state.theta = 0.0 # should this just be one number? or still nparray?
         
 
-    def reset(self, seed=None, options=None): # options is dictionary
+    def reset(self, seed=None, options={"render_mode": None}): # options is dictionary
         
-        if options is not None:
-            self.render_mode = options["render_mode"]
+        #if options is not None:
+        #    self.render_mode = options["render_mode"]
         
         if seed is not None:
             self._seed(seed=seed)
@@ -185,14 +185,15 @@ class Info_relay_env(ParallelEnv):
         self.infos = {name: np.zeros(3) for name in self.agents} # for parallel env
         # currently three actions for movement - but can be expanded to include communication later on
 
-        ## reset the action masks for the agents? - maybe only check if thay are close to the "border"?
-        # implement action masks
+        # implement action masks - probably only for communication action
 
         ## obs create observation!
         # the observation has to include the agent's position, as well as all other agents they can observe
         observations = self.observe_all()
 
-        return observations, self.infos # while testing
+        infos = {agent.name: {} for agent in self.world.agents} # masking could be included in infos, but how?
+
+        return observations, infos # while testing
    
     
     #sets the actions for each agent - another function will describe bases/emitters
@@ -205,6 +206,8 @@ class Info_relay_env(ParallelEnv):
             agent.action.u[1] = action[1] # y velocity (or acc)
             agent.action.u[2] = action[2] # omega, controls theta
 
+            
+
         ##set communication action(s) - only if to send or not to send?? direction is controlled by u[2]
 
 
@@ -212,44 +215,31 @@ class Info_relay_env(ParallelEnv):
        
         rewards = {}    
         
-        #self.current_actions = actions # obs actions are a dictionary!!
-        # kanske räcker att endast använda actions frä - inte self., action används endast inne i step
 
-        #self.current_actions = {}
-        #for agent in self.world.agents:
-            #self.current_actions[agent] = actions.get(agent , np.zeros(3)) # default 0 if no action is given
-            #self.current_actions[agent.name] = actions.get(agent.name, np.zeros(3))
-        #print(self.current_actions)
-
-        #h = self.h
-        ## need to get the actions before world step!! - tgis loop fixes the action
+        ## this loop fixes the action
         for agent in self.world.agents: 
             action = actions.get(agent.name, np.zeros(3)) # get the action for each agent - change 3 to num actions in the end
             #print(action)
             self.set_action(action, agent)
 
-        self.world.step() # the world controls the motion of the agents - (also controls communication ?)
-        print("world step done")
+        self.world.step() # the world controls the motion of the agents - (also controls communication - not yet implemented)
+        #print("world step done")
 
-        ## here we can look at the rewards - after world step - could be done after observations instead!
+        ## here we can look at the rewards - after world step - could be done after observations instead
         for agent in self.world.agents:
             rewards[agent.name] = float(self.reward(agent))
 
         # then make new observations and return 
 
-        ## sen behöver även beslut om att skicka ut signaler behandlas! Riktade utsändningar!
-
 
         # handle termination - termination if agent is killed, 
         # termination for bases when x num masseges has been succesfully delivered -> terminates all
-        #terminations could be stored in a self.terminations that updates each round if agnets died
+        #terminations could be stored in a self.terminations that updates each round if agnets dies
         #there culd be an internal self.bases_termination that declares game end if enough masseges has gone trough
         terminations = {agent.name: False for agent in self.world.agents}
 
-        # handle truncation - save as dict of dicts?
-        #OBS - maybe truncations (and terminations/rewards) HAS to be one dict to fit with pettingzoo?
         truncations = {entity.name: False for entity in self.world.entities}
-        if self.timestep > self.max_iter:
+        if self.timestep > self.max_iter - 2:
             rewards = {agent.name: 0.0 for agent in self.world.agents} # maybe add reward for bases/emitters later on? far future 
             truncations = {entity.name: True for entity in self.world.entities}
             self.agents = []
@@ -259,26 +249,30 @@ class Info_relay_env(ParallelEnv):
         self.timestep += 1
 
         # generate new observations
-        #observations = {agent.name: None for agent in self.world.agents}
         observations = self.observe_all() # call this when implemented
-        #print(observations)
-
-        #self.full_absolute_observation(self.world.agents[0])
 
         # render if wanted
         if self.render_mode == "human":
             self.render()
 
+        #infos could for example contain masking
         infos = {agent.name: {} for agent in self.world.agents}
 
-        #return observations, rewards, terminations, truncations, infos
         return observations, rewards, terminations, truncations, infos
     
     def reward(self, agent): ## OBS this could be put into the Scenario class
         """ 
         The reward given to each agent - could be made up of multiple different rewards in different functions
         """
-        return 0.0 # just for testing
+        # this reward is just for testing agileRL training
+        dist2 = 0
+        for base in self.world.bases:
+            dist2 += np.sum(np.square(agent.state.p_pos - base.state.p_pos)) # want to minimize distance to bases
+
+        #for other in self.world.agents:
+        #    dist2 -= np.sum(np.square(agent.state.p_pos - other.state.p_pos)) # want to maximize distance to other agents
+
+        return -dist2 # just for testing
 
 
     ## some version of this could be used in the beginning so that agents dont run away by mistake?
@@ -376,7 +370,7 @@ class Info_relay_env(ParallelEnv):
                 continue
             else:
                 other_pos.append(other.state.p_pos)
-                other_vel.append(other.state.p_vel)
+                #other_vel.append(other.state.p_vel)
 
                 #communication part
                 # first check if signal is detected, then add all detected signals to the observations
@@ -393,7 +387,7 @@ class Info_relay_env(ParallelEnv):
             + [agent.state.p_pos]
             + base_pos
             + other_pos
-            + other_vel
+            #+ other_vel
             #+ base_comm
             #+ other_comm
         )
@@ -403,7 +397,50 @@ class Info_relay_env(ParallelEnv):
         """
         Observes everything perfectly in the env, return the relative coordinates of everything
         """   
-        pass
+        emitter_pos = []
+        emitter_comm = []
+        for emitter in self.world.emitters:
+            break
+        
+        base_comm = []
+        base_pos = []
+        for base in self.world.bases:
+            base_pos.append(base.state.p_pos - agent.state.p_pos)
+            signal_detected = self.check_signal_detection(agent, base) # OBS måste kolla ifall signal sänds också
+            if signal_detected: # add communication - later
+                pass
+            ## the probability of detecting this signal is prop to distance and noise, 
+            # the direction of only the agent's antenna --> cos(\phi_r) = 1 
+
+        other_pos = []
+        other_vel = []
+        other_comm = []
+        for other in self.world.agents:
+            if other is agent:
+                continue
+            else:
+                other_pos.append(other.state.p_pos - agent.state.p_pos)
+                #other_vel.append(other.state.p_vel)
+
+                #communication part
+                # first check if signal is detected, then add all detected signals to the observations
+                signal_detected = self.check_signal_detection(agent, other) # OBS måste kolla ifall signal sänds också
+                # now add the signal to comm list
+                if signal_detected:
+                    pass
+                
+
+        ## OBS need to dubbelcheck if this is the most efficient way to store observations
+        # for example: agent's own state can be stored in the same array as all others? 
+        return np.concatenate(
+            [agent.state.p_vel]
+            + [agent.state.p_pos]
+            + base_pos
+            + other_pos
+            + other_vel
+            #+ base_comm
+            #+ other_comm
+        )
 
     def partial_observation(self, agent):
         """
@@ -418,11 +455,6 @@ class Info_relay_env(ParallelEnv):
     def observe_all(self):
         """Return observations for all agents as a dictionary"""
         return {agent.name: self.observe(agent) for agent in self.world.agents}
-
-
-    #def render(self):
-    #    pass # try to import something already done?
-    #        # or maybe use basic graphics in python for simplicity - later unity 
 
 
     def _seed(self, seed=None):

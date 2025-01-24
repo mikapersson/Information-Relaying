@@ -36,8 +36,10 @@ class DroneAction(Action):  # action of the agent
     def __init__(self):
         super().__init__()
         # physical action
-        self.u = None # contains acceleration in all directions and antenna rotation (should rotatio be its own varaible??)
+        self.u = None # controlls antenna
         #maybe only sets velocity directly and not acceleration?
+
+        self.communication = None #int taken from discrete action space with size of massege_buffer+1 (0 == no communication)
 
 class Entity:  # properties and state of physical world entity
     def __init__(self):
@@ -75,7 +77,7 @@ class Entity:  # properties and state of physical world entity
 class Base(Entity):  # properties of Base entities
     def __init__(self):
         super().__init__()
-        self.action = Action() # ska detta vara en action - kommer inte tränas
+        self.action = Action() # ska detta vara en action - kommer inte tränas??
 
 class Emitter(Entity): # always transmitting - taking no actions (atleast yet)
     def __init__(self):
@@ -112,6 +114,10 @@ class Drone(Entity):  # properties of agent entities
         # script behavior to execute
         self.action_callback = None
 
+        # the number of messages able to be stored at once
+        self.num_messages = 5
+        self.message_bank = [] # a list of the possible messages
+
 
 class World:  # multi-agent world
     def __init__(self):
@@ -136,6 +142,8 @@ class World:  # multi-agent world
         # contact response parameters - not used by us?
         #self.contact_force = 1e2
         #self.contact_margin = 1e-3
+
+        self.messages = {} # contains key(message_id): [destination, timestep for transmission]
 
     # return all entities in the world
     @property

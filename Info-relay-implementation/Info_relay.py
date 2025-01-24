@@ -11,7 +11,7 @@ import MPE_info_relay
 parallel_env = Info_relay_env(num_agents = 2, max_iter = 10)
 #arallel_env = MPE_info_relay.parallel_env(render_mode = "human")
 print("init done")
-options = {"render_mode": "human"} # optins can decide certain aspects of env in the reset funciton
+options = {"render_mode": "human"} # optins can decide certain aspects of env in the reset funciton - might not be used this way
 observations, infos = parallel_env.reset(seed = None, options = options)
 print("reset done")
 
