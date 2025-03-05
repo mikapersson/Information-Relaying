@@ -1,10 +1,21 @@
 import numpy as np
 
+from dataclasses import dataclass, field
+
 """
 Taken from pettingzoo MPE and altered 
 """
 
+@dataclass(slots=True)
+class Message:
+    def __init__(self):
+        self.exist = 0
+        self.ID = None
+        self.destination = None
+        self.frequency = 0
+        self.history = []
 
+        
 
 class EntityState:  # physical/external base state of all entities
     def __init__(self):
@@ -39,7 +50,16 @@ class DroneAction(Action):  # action of the agent
         self.u = None # controlls antenna
         #maybe only sets velocity directly and not acceleration?
 
+        # deleting message from message buffer
+        self.d = None
+
+        # not used!
         self.communication = None #int taken from discrete action space with size of massege_buffer+1 (0 == no communication)
+
+    
+    def __str__(self):
+        return f'Physical:{self.u}, Comm: {self.c}, {self.d}'
+
 
 class Entity:  # properties and state of physical world entity
     def __init__(self):
@@ -55,6 +75,8 @@ class Entity:  # properties and state of physical world entity
         #self.density = 25.0
         # color - only for rendering
         self.color = None
+        self.color_intensity = 0.0 # the intensity of the rendered color - to fade out after transmission
+
         # max speed and accel
         self.max_speed = None
         self.accel = None
@@ -67,7 +89,28 @@ class Entity:  # properties and state of physical world entity
         # the agent cannot send communication (different from self.c i state/action??)
         self.silent = False
 
-        self.transmit_power = 1 # in SNR calculation
+        self.transmit_power = 0.5 # in SNR calculation
+
+        self.internal_noise = 1 # internal noise for SNR calculation
+
+        self.message_buffer = [] # enteties that communicate all have a storage of messages
+
+        # the mesage to be sent by the entity
+        self.message_to_send = None #[1,0,0,0,[self.name]]
+
+    def get_index(self):
+        """
+        Returns the index corresponding to the entity, the name is on the form: name_{i}
+        """
+        return int(self.name.split("_")[1])
+    
+    # to easily see which base it is when printed out in terminal
+    def __str__(self): 
+        return f'{self.name}'
+    
+    # to easily see which base it is when printed out in terminal
+    def __repr__(self):
+        return f'{self.name}'
 
     #@property
     #def mass(self):
@@ -78,12 +121,24 @@ class Base(Entity):  # properties of Base entities
     def __init__(self):
         super().__init__()
         self.action = Action() # ska detta vara en action - kommer inte tränas??
+    
+    def __str__(self):
+        return super().__str__()
+    
+    def __repr__(self):
+        return super().__repr__()
 
 class Emitter(Entity): # always transmitting - taking no actions (atleast yet)
     def __init__(self):
         super().__init__()
         self.state.c = True # always communicating
         self.blind = True # the emitters do not listen
+
+    def __str__(self):
+        return super().__str__()
+    
+    def __repr__(self):
+        return super().__repr__()
 
 
 class Drone(Entity):  # properties of agent entities
@@ -102,9 +157,6 @@ class Drone(Entity):  # properties of agent entities
         # control range - what should we have in our problem?
         self.u_range = 1.0
 
-        ## internal noise for SNR calculation
-        self.internal_noise = 1
-
         # state
         self.state = DroneState()
         #self.state.p_pos = None # add it here to try to solve bug were all agents' positions have the same id
@@ -115,8 +167,20 @@ class Drone(Entity):  # properties of agent entities
         self.action_callback = None
 
         # the number of messages able to be stored at once
-        self.num_messages = 5
-        self.message_bank = [] # a list of the possible messages
+        self.message_buffer_size = 4
+        # a list of the possible messages - list of lists (messages)
+        self.message_buffer = []#np.zeros([self.message_buffer_size, 5]) 
+
+        self.movement_cost = 0.01 # the cost of movement - scales with magnitude of movement 
+        self.radar_cost = 0.005 # cost of changing direction of radar
+        self.transmission_cost = 0.001 # cost of transmitting a message 
+
+
+    def __str__(self):
+        return super().__str__()
+    
+    def __repr__(self):
+        return super().__repr__()
 
 
 class World:  # multi-agent world
@@ -143,7 +207,7 @@ class World:  # multi-agent world
         #self.contact_force = 1e2
         #self.contact_margin = 1e-3
 
-        self.messages = {} # contains key(message_id): [destination, timestep for transmission]
+        self.message_ID_counter = None # contains key(message_id): [destination, timestep for transmission]
 
     # return all entities in the world
     @property
@@ -212,6 +276,10 @@ class World:  # multi-agent world
 
     # the simpler model without acceleration - here action is setting the new velocity (and omega)
     def apply_process_model_2_drones(self, agent):
+        """
+        Applies the physical transition kernel. 
+        Steps all agents' position and orientation one time step.
+        """
         if not agent.movable: # skip enteties that can't move - currently bases and emitters 
             return
         
@@ -223,12 +291,15 @@ class World:  # multi-agent world
         noise_scale = (np.array([self.sigma_x, self.sigma_y]) * agent.state.p_vel * self.dt)**2
         agent.state.p_vel += np.random.normal(loc = 0, scale = noise_scale, size = (2,)) 
         
-        theta_action_dt = agent.action.u[2] * self.dt
+        theta_action_dt = agent.action.u[2] #* self.dt testing without the dt param - for discrete case 
         theta_noise = np.random.normal(loc = 0, scale = (self.sigma_omgea*theta_action_dt)**2)
         agent.state.theta += theta_action_dt + theta_noise
         #ensures that theta is bounded in [0,2pi)
         agent.state.theta %= (2*np.pi)
+
+
         # ensure that max-speed is enforced
+        # https://ieeexplore.ieee.org/stamp/stamp.jsp?tp=&arnumber=9161257
         if agent.max_speed is not None:
             speed = np.sqrt(np.square(agent.state.p_vel[0]) + np.square(agent.state.p_vel[1]))
             if speed > agent.max_speed:
@@ -240,6 +311,14 @@ class World:  # multi-agent world
         
         ## now the position is updated
         agent.state.p_pos += agent.state.p_vel * self.dt 
+
+
+    def apply_communication_kernel(self, agent):
+        """
+        Applies the communication transition kernel.
+        Fixes communication and deleting of messages from the message buffer
+        """
+        pass
 
         
 

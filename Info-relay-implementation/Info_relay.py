@@ -8,7 +8,7 @@ from Info_relay_env_v2 import Info_relay_env
 import MPE_info_relay
 
 #parallel_env = Info_relay(num_agents=2)
-parallel_env = Info_relay_env(num_agents = 2, max_iter = 10)
+parallel_env = Info_relay_env(num_agents = 2, max_iter = 50, num_bases=2, render_mode="human")
 #arallel_env = MPE_info_relay.parallel_env(render_mode = "human")
 print("init done")
 options = {"render_mode": "human"} # optins can decide certain aspects of env in the reset funciton - might not be used this way
