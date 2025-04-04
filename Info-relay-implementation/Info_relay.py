@@ -8,10 +8,11 @@ from Info_relay_env_v2 import Info_relay_env
 import MPE_info_relay
 
 #parallel_env = Info_relay(num_agents=2)
-parallel_env = Info_relay_env(num_agents = 2, max_iter = 50, num_bases=2, render_mode="human")
+parallel_env = Info_relay_env(num_agents = 6, num_bases=2, max_cycles = 10, com_used=True, antenna_used=False, deleting_used=False,
+                              continuous_actions=False, render_mode="human")
 #arallel_env = MPE_info_relay.parallel_env(render_mode = "human")
 print("init done")
-options = {"render_mode": "human"} # optins can decide certain aspects of env in the reset funciton - might not be used this way
+options = {"render_mode": "human"} # options can decide certain aspects of env in the reset funciton - might not be used this way
 observations, infos = parallel_env.reset(seed = None, options = options)
 print("reset done")
 
@@ -35,6 +36,9 @@ while parallel_env.agents:
     """
     observations, rewards, terminations, truncations, infos = parallel_env.step(actions)
     #print(parallel_env.agents)
+    
+    if terminations.get("agent_0"):
+        parallel_env.agents = []
 
     if not parallel_env.agents:
         print("termination: ", terminations)

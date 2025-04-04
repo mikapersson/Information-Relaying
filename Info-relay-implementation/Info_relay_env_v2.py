@@ -10,20 +10,26 @@ import numpy as np
 from copy import copy, deepcopy
 import random
 
-from Info_relay_classes import Drone, Base, Emitter, World, Message
+# to be able to import from current directory in both linux and windows
+try:
+    from Info_relay_classes import Drone, Base, Emitter, World, Message  
+except ImportError:
+    from .Info_relay_classes import Drone, Base, Emitter, World, Message
 
 from gymnasium.utils import seeding
 
 # to render basic graphics
 import pygame
 
+import itertools
+
 
 # class of agents (where drones and emitters(bases are included)) - boolean that shows dynamics or not - future we can have ground/air as well
 # vectorized stepping function 
 
-#maybe store all agents (drones + bases + emitters)
+# maybe store all agents (drones + bases + emitters)
 
-#fullständig info, fixed antal agenter i början - coop spel
+# fullständig info, fixed antal agenter i början - coop spel
 
  
 alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
@@ -36,9 +42,11 @@ class Info_relay_env(ParallelEnv):
         "render_fps": 1
     }
 
-    def __init__(self, num_agents = 10, num_bases = 2, num_emitters = 0, world_size = 1,
-                 a_max = 100.0/2, omega_max = 10.0, step_size = 0.05, max_iter = 25, render_mode = None):
-        
+    def __init__(self, num_agents = 1, num_bases = 2, num_emitters = 0, world_size = 1,
+                 a_max = 1.0, omega_max = np.pi/4, step_size = 0.05, max_cycles = 25, 
+                 continuous_actions = True, one_hot_vector = False, multi_discrete_actions = False, one_discrete_action_per_step = False,
+                 antenna_used = True, com_used = True, deleting_used = True, render_mode = None):
+        #super().__init__()
         self.render_mode = render_mode
         pygame.init()
         self.viewer = None
@@ -51,8 +59,6 @@ class Info_relay_env(ParallelEnv):
         #self.game_font = pygame.font.Font(None, 24)
         self.game_font = pygame.freetype.SysFont('Arial', 24)
 
-        # Set up the drawing window
-
         self.renderOn = False
 
         self.n_agents = num_agents
@@ -60,31 +66,48 @@ class Info_relay_env(ParallelEnv):
         self.num_emitters = num_emitters
         self.a_max = a_max
         self.omega_max = omega_max
-        self.omega_disc = 36 #the number of dicrete values for omega
+        #self.omega_disc = 36 #the number of dicrete values for omega
 
         self.SNR_threshold = 1 # threshold for signal detection
 
         self.world_size = world_size # the world will be created as square. - maybe not used now
 
         self.h = step_size
-        self.max_iter = max_iter # maximum amount of iterations before the world truncates 
+        self.max_iter = max_cycles # maximum amount of iterations before the world truncates - OBS renamed the inupt to more closely match benchmarl
 
         self._seed() # maybe set up seed in another way?? now imprting from gymnasium
 
         # set all World variables first - contains all enteties
         self.world = self.make_world(num_agents, num_bases, num_emitters)
 
+        self.continuous_actions = continuous_actions # indicies if continous or discrete actions are used
+        self.one_hot_vector = one_hot_vector # if continous - this shows if one hot vector or single value representation of actions (output from NN) are used
+        self.multi_discrete_actions = multi_discrete_actions
+        self.one_discrete_action_per_step = one_discrete_action_per_step # if True: the agent can only perform one task each timestep, i.e, only move right. cant move and communicate at the same time
 
-        self.continous_actions = True # indicies if continous or discrete actions are used
-        self.one_hot_vector = False # if continous - this shows if one hot vector or single value representation of actions (output from NN) are used
+        self.antenna_used = antenna_used #OBS ändra när antennen ska styras igen
+        self.com_used = com_used #OBS - communications can be turned of to test just the movement in different tasks
+        self.deleting_used = deleting_used # if the agents are able to decide to delete messages. If deleting is part of the action space
+
+        self.possible_agents = [agent.name for agent in self.world.agents] 
+
+
+        dim_p = self.world.dim_p
         
+        # OBS really need to dubble check the state space - what is to be included - is it neccessary??
+        state_dim = dim_p * (self.n_agents - 1) + dim_p * self.num_bases + dim_p * self.num_emitters + self.n_agents * self.world.agents[0].message_buffer_size * 3
+        self.state_space = spaces.Box(
+            low=-np.float32(np.inf),
+            high=+np.float32(np.inf),
+            shape=(state_dim,),
+            dtype=np.float32,
+        )
 
-        #self.agents = [agent.name for agent in self.world.agents]
-        self.possible_agents = [agent.name for agent in self.world.agents] # self.agents[:]
+
         
         #all agents get their own obs/action spaces - stored in a Dict structure 
         #obs bases should observe for masseges aswell, right? They can use the same obs_space with different masking
-        dim_p = self.world.dim_p
+        
         """
         self.observation_spaces = spaces.Dict(
             {agent: spaces.Box(low = -np.inf, high = np.inf, 
@@ -109,14 +132,22 @@ class Info_relay_env(ParallelEnv):
             agent.name: spaces.Box(
                 low=-np.inf, high=np.inf,
                 shape=(dim_p * (self.n_agents - 1) + dim_p * self.num_bases + dim_p * self.num_emitters + self.n_agents * agent.message_buffer_size * 3,),
-                dtype=np.float64
+                dtype=np.float32
             ) for agent in self.world.agents
         }
+
+        # self.observation_spaces = {
+        #     agent.name: spaces.Box(
+        #         low=-np.inf, high=np.inf,
+        #         shape=(dim_p * self.n_agents + dim_p * self.num_bases + dim_p * self.num_emitters,),
+        #         dtype=np.float32
+        #     ) for agent in self.world.agents
+        # }
         
         """
         self.observation_spaces = spaces.Dict(
             {agent: spaces.Box(low = -np.inf, high = np.inf, 
-            shape = (dim_p*self.n_agents-2 + dim_p*self.num_bases + dim_p*self.num_emitters,), dtype = np.float64)  
+            shape = (dim_p*self.n_agents-2 + dim_p*self.num_bases + dim_p*self.num_emitters,), dtype = np.float32)  
             for agent in self.possible_agents} ## kanske BOX(num total agents+other)?
             #shape: the positions of all enteties in the world as well as the velocity of itself
         )
@@ -124,7 +155,7 @@ class Info_relay_env(ParallelEnv):
         """
         self.action_spaces = spaces.Dict({agent: spaces.Box(
             low = np.array([-self.a_max, -self.a_max, -self.omega_max]), 
-            high = np.array([self.a_max, self.a_max, self.omega_max]), dtype=np.float64) 
+            high = np.array([self.a_max, self.a_max, self.omega_max]), dtype=np.float32) 
             for agent in self.possible_agents}) # here we have three actions, acceleration in x/y and rotation
         # also need descrete actions for communication!
         """
@@ -132,7 +163,7 @@ class Info_relay_env(ParallelEnv):
         # just for testung the simple version when training
         self.action_spaces = spaces.Dict({agent: spaces.Box(
             low = np.array([-self.a_max, -self.a_max]), 
-            high = np.array([self.a_max, self.a_max]), dtype=np.float64) 
+            high = np.array([self.a_max, self.a_max]), dtype=np.float32) 
             for agent in self.possible_agents})
         """
         """
@@ -145,14 +176,9 @@ class Info_relay_env(ParallelEnv):
                 "communication_action": spaces.MultiDiscrete([agent.message_buffer_size + 1, agent.message_buffer_size + 1]) # c and d actions
             }) for agent in self.world.agents}
         """
-        """
-        # testing out a entierly discrete action space
-        self.action_spaces = {agent.name: spaces.MultiDiscrete(
-                            [3,3,self.omega_disc,agent.message_buffer_size+1, agent.message_buffer_size+1]
-                            )for agent in self.world.agents}
-        """
+       
         # sets the action spaces for the two different continous action space cases
-        if self.continous_actions:
+        if self.continuous_actions:
             if self.one_hot_vector:
                 self.action_spaces = {
                 agent.name: spaces.Box(
@@ -179,15 +205,65 @@ class Info_relay_env(ParallelEnv):
                 for agent in self.world.agents
                 }
 
+        else:
+            if self.multi_discrete_actions:
+                """
+                # testing out a entierly discrete action space
+                self.action_spaces = {agent.name: spaces.MultiDiscrete(
+                                    [3,3,self.omega_disc,agent.message_buffer_size+1, agent.message_buffer_size+1]
+                                    )for agent in self.world.agents}
+                """
+                # testing to see if the Tuple structure works 
+                self.action_spaces = {agent.name: spaces.Tuple(
+                                    [spaces.Discrete(3), spaces.Discrete(3), spaces.Discrete(self.omega_disc),
+                                    spaces.Discrete(agent.message_buffer_size+1), spaces.Discrete(agent.message_buffer_size+1)]
+                                    )for agent in self.world.agents}
+            else:
+                # chose the number of discretized actions (ex velocity: [-max, 0, +max])
+                num_velocity_actions = 3
+                num_angle_actions = 3 # should be atleast 3 (and uneven) if used
+                num_com_actions = 2 # should be one more than the number of messages. OBS remove hard-coding
+                
+                if not self.antenna_used: # the agents do not use the antenna - isotropic transmission
+                    num_angle_actions = 1
+                if not self.com_used: # the agents do not communicate
+                    num_com_actions = 1
+
+                num_deletion_actions = num_com_actions
+                if not self.deleting_used: # the agnets do not delete by their own action
+                    num_deletion_actions = 1
+
+                if self.one_discrete_action_per_step:
+                    # The agents can only perform one discrete action - not move and communicate at the same time. Simple approach
+                    self.action_spaces = {agent.name: spaces.Discrete(
+                        2*num_velocity_actions + num_angle_actions + num_com_actions + num_deletion_actions
+                        ) for agent in self.world.agents}
+                else:
+                    # Here we try to combine the different actions into one single output - many actions that have to be 'decoded'
+                    # used later to retrieve the correct action index for each major action type
+                    
+                    self.different_discrete_actions = [num_velocity_actions, num_velocity_actions,
+                                                       num_angle_actions, num_com_actions, num_deletion_actions]
+                    
+                    self.action_mapping_dict = {i: list(comb) for i, comb in enumerate(itertools.product(*map(range, self.different_discrete_actions)))}
+                    
+                    self.action_spaces = {agent.name: spaces.Discrete(
+                        num_velocity_actions**2 * num_angle_actions * num_com_actions * num_deletion_actions
+                    ) for agent in self.world.agents}
+                    #print("discrete action space not yet implemented")
+                    #NotImplementedError()
+                    #print(self.action_mapping_dict)
+                    #print(self.action_spaces)
+        
 
         #self.terminated_agents = set() # keeps track of lost agents
         ## need a way to add new agents during simulation aswell!
 
-        self.transmission_radius = self.calculate_transmission_radius(self.world.bases[0])
+        self.transmission_radius_bases = self.calculate_transmission_radius(self.world.bases[0])
+        self.transmission_radius_drones = self.calculate_transmission_radius(self.world.agents[0])
 
-        self.recived_messages = [] # an attribute that keeps track of all messages recieved by bases THIS timestep
-
-        
+        self.recived_messages_bases = [] # an attribute that keeps track of all messages recieved by bases THIS timestep    
+        self.recived_messages_agents = [] # keeps track of all messages recieved by agents this timestep - to give reward based in such behaviour
 
 
     # these "world" functions could be included in their own class, Scenario, like in MPE -
@@ -198,28 +274,31 @@ class Info_relay_env(ParallelEnv):
         """
         world = World()
 
-        world.dt = self.h ## step leangth is transferred to the World
+        world.dt = self.h ## step length is transferred to the World
 
         world.dim_c = 2 # communication dimension, not exactly sure how we will use it yet
 
         world.agents = [Drone() for _ in range(num_agents)]
         for i, agent in enumerate(world.agents):
             agent.name = f"agent_{i}"
-            agent.size = 0.025 #quite small
+            agent.size = 0.025/2 #quite small
             agent.max_speed = 1.0 # can be cnahged later! or different for differnt agents
             agent.u_range = [self.a_max, self.omega_max] # maximum control range = a_max, omega_max
             agent.internal_noise = 1 ## set internal noise level
             agent.color = np.array([0, 0.33, 0.67])
+            agent.message_buffer_size = 1
 
             #agent.transmit_power = 1 # set to reasonable levels
 
         world.bases = [Base() for _ in range(num_bases)]
         for i, base in enumerate(world.bases):
             base.name = f"base_{i}"
-            base.size = 0.050 # the biggest pieces in the world
+            base.size = 0.050/2 # the biggest pieces in the world
             base.color = np.array([0.35, 0.85, 0.83])
-
             #base.transmit_power = 1 # set to reasonable levels
+
+        world.bases[1].silent = True # first scenario is one way communication
+        world.bases[0].generate_messages = False # the same message all the time
 
         world.emitters = []
         #world.emitters = [Emitter() for _ in range(num_emitters)]
@@ -227,9 +306,26 @@ class Info_relay_env(ParallelEnv):
             emitter.name = f"emitter_{i}"
             emitter.color = np.array([0.35, 0.85, 0.35])
 
-            #emitter.transmit_power = 1 # set to reasonable levels
-
         return world
+    
+
+    def generate_base_positions(self, np_random, radius):
+        """Generate random base positions with equal spacing.
+        Used in reset_world to place bases."""
+        # Generate evenly spaced points on a circle
+        angles = np.linspace(0, 2 * np.pi, self.num_bases, endpoint=False)
+
+        # Randomly rotate the formation
+        random_rotation = np_random.uniform(0, 2 * np.pi)
+        angles += random_rotation
+
+        positions = np.stack([radius * np.cos(angles), radius * np.sin(angles)], axis=1)
+
+        # Randomly shift within bounds
+        shift = np_random.uniform(-self.world_size/2, self.world_size/2, size=(1, 2))
+        positions += shift
+
+        return positions
     
     ## obs could maybe run make_world here also, otherwise potential problem with truncation ([] agent lists)
     def reset_world(self, world, np_random): # np_ranodm should be some sort of seed for reproducability
@@ -238,25 +334,36 @@ class Info_relay_env(ParallelEnv):
         Randomly distributes the bases and emitters - all drones start at one of the bases (first in list)
         """
         world.message_ID_counter = 0 # resets the message_ID counter
+        radius = self.calculate_transmission_radius(self.world.bases[0]) * 0.9 * self.n_agents #OBS ändrade radie
+        positions = self.generate_base_positions(np_random, radius)
         for i, base in enumerate(world.bases):
-            base.state.p_pos = np_random.uniform(-self.world_size, self.world_size, world.dim_p)
+            #base.state.p_pos = np_random.uniform(-self.world_size, self.world_size, world.dim_p)
+            base.state.p_pos = positions[i]
             base.state.p_vel = np.zeros(world.dim_p)
             # set up messages to be send by the bases
             base.message_to_send = [1,0,0,0,[base.name]]
             self.generate_new_base_message(base) # fixes base.message_to_send
-        
-        world.bases[0].state.p_pos = np_random.uniform(-self.world_size, self.world_size, world.dim_p)
-        world.bases[1].state.p_pos = world.bases[0].state.p_pos + np.array([0.99,0])*self.transmission_radius
 
         for i, emitter in enumerate(world.emitters):
             #emitter.state.p_pos = np_random.uniform(-self.world_size, self.world_size, world.dim_p)
             emitter.state.p_pos = np.zeros(world.dim_p)
             emitter.state.p_vel = np.zeros(world.dim_p)
 
+         # Compute the midpoint of all bases
+        base_positions = np.array(positions)
+        center = np.mean(base_positions, axis=0)  # Midpoint of bases
+
         for i, agent in enumerate(world.agents):
             #agent.state.p_pos = np.array(world.bases[0].state.p_pos) # see if this works - all should start at the first base
-            agent.state.p_pos = np_random.uniform(-self.world_size, self.world_size, world.dim_p) # randomly assign starting location
+            #agent.state.p_pos = np_random.uniform(-self.world_size*3, self.world_size*3, world.dim_p) # randomly assign starting location
+
+            # the agents all spawn randomly in a circular disk with the center point of the bases as its center. 
+            radius_agent = np_random.uniform(0, radius)  # Random radius
+            angle = np_random.uniform(0, 2 * np.pi)  # Random angle
+            offset = np.array([radius_agent * np.cos(angle), radius_agent * np.sin(angle)])  # Convert to Cartesian
+            agent.state.p_pos = center + offset  # Set agent's position
             agent.state.p_vel = np.zeros(world.dim_p) # now 2d
+
             agent.state.theta = 0.0 # should this just be one number? or still nparray?
             # initiate the message_buffer so that it always has the same size
             agent.message_buffer = []
@@ -264,8 +371,9 @@ class Info_relay_env(ParallelEnv):
                 agent.message_buffer.append([0,0,0,0,None]) 
                 #agent.message_buffer.append(Message()) # create new message for each slot in buffer
         
-        world.agents[0].state.p_pos = world.bases[0].state.p_pos + 0.99*self.transmission_radius/np.sqrt(2)*np.array([1,1])
-        world.agents[1].state.p_pos = world.bases[0].state.p_pos + 0.99*self.transmission_radius*np.array([0,1])
+        #world.agents[0].state.p_pos = world.bases[0].state.p_pos + 0.99*self.transmission_radius/np.sqrt(2)*np.array([1,1])
+        #world.agents[1].state.p_pos = world.bases[0].state.p_pos + 0.99*self.transmission_radius*np.array([0,1])
+
 
     def reset(self, seed=None, options=None): # options is dictionary
         
@@ -283,73 +391,118 @@ class Info_relay_env(ParallelEnv):
         # always start at timestep 0
         self.timestep = 0 
 
-        self.agents = copy(self.possible_agents)
+        self.agents = copy(self.possible_agents) #OBS används denna fortfarande? 
 
-        # All this might only be useful (needed) to AEC envs - might use here anyway
-        self.rewards = {name: 0.0 for name in self.agents}
-        self._cumulative_rewards = {name: 0.0 for name in self.agents}
-        self.terminations = {name: False for name in self.agents}
-        self.truncations = {name: False for name in self.agents}
-        self.infos = {name: {} for name in self.agents}
-
-        #self.current_actions = [None] * self.num_agents ## could maybe be used
-        self.infos = {name: np.zeros(3) for name in self.agents} # for parallel env
-        # currently three actions for movement - but can be expanded to include communication later on
-
-        ## reset the action masks for the agents? - maybe only check if thay are close to the "border"?
-        # implement action masks
-
-        ## obs create observation!
-        # the observation has to include the agent's position, as well as all other agents they can observe
         observations = self.observe_all()
 
-        return observations, self.infos # while testing
+        if not self.continuous_actions and not self.one_discrete_action_per_step:
+            infos = {agent.name: {"action_mask" : self.create_action_mask(agent)} for agent in self.world.agents}
+        elif self.continuous_actions:
+            infos = {agent.name: None for agent in self.world.agents}
+        else:
+            infos = {agent.name: None for agent in self.world.agents} # this case (one discrete action) is probably not used but is nedded to be changed in that case
+
+        return observations, infos # while testing
+    
+
+    def create_action_mask(self, agent):
+        action_mask = np.ones(len(self.action_mapping_dict), dtype=int) # the amount of possible actions
+        empty_indices = [] # the indices corresponding to an empty message buffer slot (+1 to equal the action that would correspond to sending that message)
+        for i, message in enumerate(agent.message_buffer):
+            if message[0] == 0: # no message in this slot --> can't send this message
+                empty_indices.append(i+1)
+            
+            non_allowed_actions = [key for key, value in self.action_mapping_dict.items() if value[-1] in empty_indices or value[-2] in empty_indices]
+            action_mask[non_allowed_actions] = 0
+        
+        return action_mask
     
 
     #sets the action in the case where all actions are discrete
+    # OBS: the self.a_max variable can be changed to an agent-specific value to keep track of 
     def set_discrete_action(self, action, agent):
         agent.action.u = np.zeros(3)
         agent.action.c = 0
         agent.action.d = 0
 
-        agent.action.u[0] = action[0]*agent.max_speed
-        if action[0] == 2:
-            agent.action.u[0] = -agent.max_speed
-        agent.action.u[1] = action[1]*agent.max_speed
-        if action[1] == 2:
-            agent.action.u[1] = -agent.max_speed
-        agent.action.u[2] = -np.pi + (action[2] / (self.omega_disc-1)) * (2 * np.pi) # sets the omega between -pi and pi 
+        if self.multi_discrete_actions:
+            agent.action.u[0] = action[0]*self.a_max
+            if action[0] == 2:
+                agent.action.u[0] = -self.a_max
+            agent.action.u[1] = action[1]*self.a_max
+            if action[1] == 2:
+                agent.action.u[1] = -self.a_max
 
-        agent.action.c = action[3]
-        agent.action.d = action[4]
+            if self.antenna_used: # the agents control their antenna - do not send isotropical (otherwise action always 0)
+                agent.action.u[2] = action[2]*self.omega_max
+                if action[2] == 2:
+                    agent.action.u[2] = -self.omega_max
+
+            agent.action.c = action[3]
+            agent.action.d = action[4]
+
+        else:
+            if self.one_discrete_action_per_step:
+                # Only one of the 'subactions' (moving/rotating antenna/communicating) is chosen each timestep
+                # TODO: implement mapping between network output and correct action in env. 
+                raise NotImplementedError()
+            else:
+                # here action is a number between 0 and 143 (the number of combinations of all actions) - translate it into the different subactions
+                # the for loop below ensures unique mapping between action number and a set of subactions 
+                actions = self.action_mapping_dict.get(action)
+
+                agent.action.u[0] = actions[0]*self.a_max # actions is currently [0,1,2] 
+                if actions[0] == 2:
+                    agent.action.u[0] = -self.a_max
+                agent.action.u[1] = actions[1]*self.a_max
+                if actions[1] == 2:
+                    agent.action.u[1] = -self.a_max
+                
+                if self.antenna_used: # the agents control their antenna - do not send isotropical (otherwise action always 0)
+                    agent.action.u[2] = actions[2]*self.omega_max
+                    if actions[2] == 2:
+                        agent.action.u[2] = -self.omega_max
+
+                agent.action.c = actions[3]
+                agent.action.d = actions[4]
 
 
-    def set_com_action_one_hot_vector(self, action, agent):
-        buffer_size = agent.message_buffer_size + 1
+    # sets action when all outputs are continuous
+    def set_continuous_action(self, action, agent):
 
-        agent.action.c = np.argmax(action[3 : 3 + buffer_size])  
-        agent.action.d = np.argmax(action[3 + buffer_size : 3 + 2 * buffer_size])
+        # the one hot vector approch will probably not be used 
+        def set_com_action_one_hot_vector(action, agent):
+            buffer_size = agent.message_buffer_size + 1
 
-    def set_com_action_one_output(self, action, agent):
-        agent.action.c = round(action[3] * agent.message_buffer_size) # translates to integer
-        agent.action.d = round(action[4] * agent.message_buffer_size)
+            agent.action.c = np.argmax(action[3 : 3 + buffer_size])  
+            agent.action.d = np.argmax(action[3 + buffer_size : 3 + 2 * buffer_size]) # OBS some sort of softmax here??
 
-    # sets action when all outputs are continous
-    def set_action(self, action, agent):
+        def set_com_action_one_output(action, agent):
+            agent.action.c = round(action[3] * agent.message_buffer_size) # translates to integer
+            agent.action.d = round(action[4] * agent.message_buffer_size)
+
+
         agent.action.u = np.zeros(3)
         agent.action.c = 0
         agent.action.d = 0
 
-        # 2x-1 transforms the input of [0,1] to [-1,1]
+        # 2x-1 transforms the input of [0,1] to [-1,1] (the NN outputs a number \in [0,1])
         agent.action.u[0] = (2*action[0]-1)*self.a_max # x velocity (or acc)
         agent.action.u[1] = (2*action[1]-1)*self.a_max # y velocity (or acc)
         agent.action.u[2] = (2*action[2]-1)*self.omega_max # omega, controls theta
 
         # set com action
         if self.one_hot_vector:
-            self.set_com_action_one_hot_vector(action, agent)
+            set_com_action_one_hot_vector(action, agent)
         else:
-            self.set_com_action_one_output(action, agent)
+            set_com_action_one_output(action, agent)
+
+    
+    def set_action(self, action, agent):
+        if self.continuous_actions:
+            self.set_continuous_action(action, agent)
+        else:
+            self.set_discrete_action(action, agent)
         
    
     """
@@ -374,12 +527,8 @@ class Info_relay_env(ParallelEnv):
         rewards = {}    
         
         for agent in self.world.agents: 
-            action = actions.get(agent.name, np.zeros(5)) # get the action for each agent - change 3 to num actions in the end
-            #print(action)
-            if self.continous_actions:
-                self.set_action(action, agent)
-            else:
-                self.set_discrete_action(action, agent)
+            action = actions.get(agent.name, np.zeros(5)) # get the action for each agent
+            self.set_action(action, agent)
         """
         for agent in self.world.agents:
             action = actions.get(agent.name, {
@@ -389,37 +538,37 @@ class Info_relay_env(ParallelEnv):
             print(action)
             self.set_daction(action, agent)
         """
-
+    
         #print("step", self.timestep)
-        # OBS could make world.step() return the control penalties to be added to the reward later!
         # could also just calculate the penalties here if they come only from the actions!
         self.world.step() # the world controls the motion of the agents - (also controls communication ?)
         #print("world step done")
 
         # run all comunications in the env
         self.communication_kernel()
-        #print("communication kernel done")
-        #print(self.world.bases[0].message_to_send)
-        #print(self.world.bases[1].message_to_send)
+
+        
 
         ## here we can look at the rewards - after world step - could be done after observations instead!
         global_reward = self.global_reward()
+        reward_help = self.transmission_reward()
         for agent in self.world.agents:
-            rewards[agent.name] = float(self.reward(agent, global_reward))
-            #print(rewards[agent.name])
+            rewards[agent.name] = float(self.reward(agent, global_reward, reward_help[agent.name]))
+        
 
         # handle termination - termination if agent is killed, 
         # termination for bases when x num masseges has been succesfully delivered -> terminates all
         #terminations could be stored in a self.terminations that updates each round if agnets died
         #there culd be an internal self.bases_termination that declares game end if enough masseges has gone trough
-        terminations = {agent.name: False for agent in self.world.agents}
+        terminations = self.terminate()
+        #terminations = {agent.name: False for agent in self.world.agents}
 
         # handle truncation - save as dict of dicts?
         #OBS - maybe truncations (and terminations/rewards) HAS to be one dict to fit with pettingzoo?
-        truncations = {entity.name: False for entity in self.world.entities}
+        truncations = {agent.name: False for agent in self.world.agents}
         if self.timestep > self.max_iter - 2:
             #rewards = {agent.name: 0.0 for agent in self.world.agents} # maybe add reward for bases/emitters later on? far future 
-            truncations = {entity.name: True for entity in self.world.entities}
+            truncations = {agent.name: True for agent in self.world.agents}
             self.agents = []
             self.bases = []
             self.emitters = []
@@ -427,42 +576,67 @@ class Info_relay_env(ParallelEnv):
         self.timestep += 1
 
         # generate new observations
-        #observations = {agent.name: None for agent in self.world.agents}
         observations = self.observe_all()
-        #print(observations)
-
-        #self.full_absolute_observation(self.world.agents[0])
 
         # render if wanted
         if self.render_mode == "human":
             self.render()
 
-        infos = {agent.name: {} for agent in self.world.agents}
+        infos = {agent.name: {"action_mask" : self.create_action_mask(agent)} for agent in self.world.agents}
 
         #return observations, rewards, terminations, truncations, infos
         return observations, rewards, terminations, truncations, infos
+    
+
+    def terminate(self):
+        """
+        Determins the termination condition for each scenario. 
+        Returns a dict of the terminated agents.
+
+        Scenario 1: terminates after first correct message delivered
+        """
+        if len(self.recived_messages_bases) > 0:
+            #print("messages:", self.recived_messages_bases)
+            msg = self.recived_messages_bases[0] # only one message possible per timestep in ths scenario - still a list
+            if msg[2] == int(msg[4][-1].split("_")[1]):
+                self.agents = []
+                return {agent.name: True for agent in self.world.agents}
+        
+        return {agent.name: False for agent in self.world.agents}
+
+
     
     def calculate_action_penalties(self, agent):
         """
         Calculate the penalties each drone recieves for actions. Movement and communication.
         """
         penalties = 0
-        penalties += abs(agent.action.u[0]**2*agent.movement_cost)
-        penalties += abs(agent.action.u[1]**2*agent.movement_cost)
-        penalties += abs(agent.action.u[2]**2*agent.radar_cost)
+        if self.continuous_actions:
+            penalties += abs(agent.action.u[0]**2*agent.movement_cost)
+            penalties += abs(agent.action.u[1]**2*agent.movement_cost)
+            penalties += abs(agent.action.u[2]**2*agent.radar_cost)
+        else:
+            if abs(agent.action.u[0]) == abs(agent.action.u[1]): # both are 0 or max_vel
+                penalties += abs(agent.action.u[0]**2*agent.movement_cost)
+            else:
+                penalties += abs(agent.action.u[0]**2*agent.movement_cost)
+                penalties += abs(agent.action.u[1]**2*agent.movement_cost)
+            penalties += abs(agent.action.u[2]**2*agent.radar_cost)
+
 
         # Communication costs 
         if not agent.action.c == 0: # sending
             penalties += abs(agent.transmission_cost)
-        # cost to delete?
+        # deleting cost
+        if not agent.action.d == 0:
+            penalties += abs(agent.transmission_cost)
 
         # some penalites to help make the continous com actions more robust
-        if self.continous_actions:
-            if self.one_hot_vector:
-                pass
-            else:
-                pass
-
+        #if self.continuous_actions:
+        #    if self.one_hot_vector:
+        #        pass
+        #    else:
+        #        pass
         return penalties
     
     def global_reward(self):
@@ -472,25 +646,144 @@ class Info_relay_env(ParallelEnv):
         ## need to look at all messages that were delivered THIS timestep
         # could be done with an env attribute that updates each timestep!
         reward = 0
-        for msg in self.recived_messages:
+        for msg in self.recived_messages_bases:
             if msg[2] == int(msg[4][-1].split("_")[1]): # correct destination
-                reward += 100 # fine tune so that the reward is large enough!
+                reward += max(100 - 0.5*msg[3], 50)/10 # fine tune so that the reward is large enough! # minus the time it took to deliver message
 
         return reward
-                
     
-    def reward(self, agent, global_reward): ## OBS this could be put into the Scenario class
+    #rew iter should decrease to 0 throughout training
+    def reward_iteration(self, agent):
+        # this is a function of SNR - to guide the agents to transmit with (almost) as low SNR as possible - increases range
+        #raise NotImplementedError()
+        return 0
+
+    def reward_shaping(self):
+        # this is the average capacity of the relay network - want to maximize this
+        # Compute SNR for agent-agent pairs
+
+        agents = self.world.agents 
+        bases = self.world.bases       
+
+        Na = len(agents) 
+        Nb = len(bases)   
+    
+        # Compute SNR for agent-agent pairs
+        agent_agent_capacity = []
+        for i in range(Na):
+            for j in range(i + 1, Na):  # Avoid redundant calculations
+                snr = self.calculate_SNR(agents[i], agents[j])
+                #capacity = np.log(1 + snr)
+                capacity = 0
+                if snr >= self.SNR_threshold: # reward if the agent in within range of other agents - otherwise not
+                    capacity = 1
+                agent_agent_capacity.append(capacity)
+    
+        # Compute SNR for agent-base pairs
+        agent_base_capacity = []
+        for i in range(Na):
+            for j in range(Nb):
+                snr = self.calculate_SNR(agents[i], bases[j])
+                #capacity = np.log(1 + snr)
+                capacity = 0
+                if snr >= self.SNR_threshold:
+                    capacity = 1
+                agent_base_capacity.append(capacity)
+    
+        # Combine all capacity values
+        all_capacities = agent_agent_capacity + agent_base_capacity
+    
+        # Compute average capacity
+        avg_capacity = sum(all_capacities) / len(all_capacities) 
+    
+        return avg_capacity / 100
+    
+    def relay_reward(self, agent):
+        """
+        Computes a reward function that peaks at 0.75 * transmission_radius_drones away from all 
+        entities (agents or bases) and decays quadratically or linearly.
+        """
+        entities = self.world.agents + self.world.bases  # Combine agents and bases
+        entities = [e for e in entities if e != agent]  # Exclude the current agent
+        if not entities:
+            return 0  # No other entities to calculate distance
+
+        # Compute distances to all other entities
+        distances = [np.linalg.norm(agent.state.p_pos - e.state.p_pos) for e in entities]
+        d_opt = 0.75 * self.transmission_radius_drones  # Ideal relay distance
+
+        # Quadratic decay reward function
+        def quadratic_reward(d, d_opt):
+            return max(0, 1 - ((d - d_opt) / d_opt) ** 2)
+
+        def linear_reward(d, d_opt):
+            return max(0, 1 - abs(d - d_opt) / d_opt)
+
+        # Compute rewards for all distances and take the average
+        rewards = [quadratic_reward(d, d_opt) for d in distances]
+        avg_reward = sum(rewards) / len(rewards) if rewards else 0
+
+        return avg_reward / 50  # Scale down to keep it smaller than control penalties
+    
+    def transmission_reward(self):
+        """The sending agent is rewarded if the message is picked up by an agent closer to the destination base"""
+        
+        def intersection_point(point: np.ndarray, line_start: np.ndarray, line_end: np.ndarray) -> np.ndarray:
+            """
+            Compute the intersection of the perpendicular dropped from the point to the line.
+            """
+            x0, y0 = point
+            x1, y1 = line_start
+            x2, y2 = line_end
+
+            dx, dy = x2 - x1, y2 - y1
+            t = ((x0 - x1) * dx + (y0 - y1) * dy) / (dx**2 + dy**2)
+
+            return np.array([x1 + t * dx, y1 + t * dy])
+        
+        reward = {agent.name: 0 for agent in self.world.agents}
+        for msg in self.recived_messages_agents: # the messages contain the entire history of previous entities - look att the latest two (reciever and transmitter this time step)
+            if msg[4][-2].split("_")[0] == "agent": # the transmitter was an agent
+                # check how much closer the message is to the destination base. Give reward scaled with this distance
+                transmitter = self.get_entity_by_name(msg[4][-2])
+                reciever = self.get_entity_by_name(msg[4][-1])
+                base = self.get_entity_by_name("base_" + str(msg[2])) # get the base 
+
+                transmitter_pos = transmitter.state.p_pos
+                reciever_pos = reciever.state.p_pos 
+                base_pos = base.state.p_pos
+
+                # the orthogonal projection of the receiver on the line between the target base and the transmitter 
+                mid_point = intersection_point(reciever_pos, transmitter_pos, base_pos)
+
+                if np.linalg.norm(base_pos - mid_point) < np.linalg.norm(base_pos - transmitter_pos):
+                    reward[transmitter.name] += np.linalg.norm(mid_point - transmitter_pos) # small reward based on how much closer to the destination the message has come
+                
+        return reward
+    
+    def reward(self, agent, global_reward, reward_help): ## OBS this could be put into the Scenario class
         """ 
         The reward given to each agent - could be made up of multiple different rewards in different functions
         """
         #dist = 0
         #for base in self.world.bases:
             #dist2 += np.sum(np.square(agent.state.p_pos - base.state.p_pos)) # want to minimize distance to bases
-        #    dist += np.linalg.norm(agent.state.p_pos - base.state.p_pos)
+            #dist += np.linalg.norm(agent.state.p_pos - base.state.p_pos)*0.001
         #for other in self.world.agents:
-        #    dist2 -= np.sum(np.square(agent.state.p_pos - other.state.p_pos)) # want to maximize distance to other agents
+            #dist -= np.linalg.norm(agent.state.p_pos - other.state.p_pos)*0.0001 # want to maximize distance to other agents
 
-        return -self.calculate_action_penalties(agent) + global_reward
+        #help_reward = self.reward_iteration(agent) + self.reward_shaping() # the capacity has to high value relative other rewards -> /100
+        #print(f"{agent.name}: {self.calculate_action_penalties(agent)}")
+        #relay_reward = self.relay_reward(agent)
+        #self.calculate_action_penalties(agent)
+
+        #reward = self.transmission_reward()
+
+        #print(reward)
+
+        #return -self.calculate_action_penalties(agent) + global_reward #+ relay_reward #+ help_reward #- dist
+        #return global_reward + help_reward # removes action penalties - might encourage more exploration
+        return global_reward*10 - self.calculate_action_penalties(agent) #+ reward_help/10 #- dist #+ relay_reward
 
 
     ## some version of this could be used in the beginning so that agents dont run away by mistake?
@@ -510,7 +803,7 @@ class Info_relay_env(ParallelEnv):
     
     def get_entity_by_name(self, name):
         """
-        Returns the base instance correpsonding to a name
+        Returns the entity instance correpsonding to a name
         """
         for entity in self.world.agents + self.world.bases:
             if entity.name == name:
@@ -564,20 +857,22 @@ class Info_relay_env(ParallelEnv):
         messages_bases = []
         
         for base in self.world.bases:
-           # toss a coin to send message, the prob of 0.5 can be changed
-            if np.random.binomial(1, 0.5) == 1: 
-                messages_bases.append(deepcopy(base.message_to_send)) # add copy, avoid referece errors later
-                #messages_bases.append(base.message_to_send) # no need for a copy here?
-                base.state.c = 1
-            else:
-                base.state.c = 0 # no message sent 
+            if not base.silent:
+                # toss a coin to send message, the prob of 0.5 can be changed
+                if np.random.binomial(1, 0.5) == 1: 
+                    messages_bases.append(deepcopy(base.message_to_send)) # add copy, avoid referece errors later
+                    #messages_bases.append(base.message_to_send) # no need for a copy here?
+                    base.state.c = 1
+                else:
+                    base.state.c = 0 # no message sent 
 
-            #update to new message:
-            if np.random.binomial(1, 0.1) == 1:
-                # update ID - world variable to keep track of all IDs
-                self.generate_new_base_message(base)
-            else:
-                pass # no update of message 
+                if base.generate_messages:
+                    #update to new message:
+                    if np.random.binomial(1, 0.1) == 1:
+                        # update ID - world variable to keep track of all IDs
+                        self.generate_new_base_message(base)
+                    else:
+                        pass # no update of message 
 
         return messages_bases 
     
@@ -586,7 +881,7 @@ class Info_relay_env(ParallelEnv):
         """
         Checks if a message is to be deleted and removes it by setting all to 0
         """
-        if agent.action.d == 0: ## OBS need to convert one-hot-vector to index!
+        if agent.action.d == 0: 
             pass # no message to be deleted
         elif agent.action.d-1 in self.check_message_buffer(agent, 0): # OBS!! only for testing - passes if trying to delete non existing message
             pass
@@ -637,10 +932,12 @@ class Info_relay_env(ParallelEnv):
 
 
             # deletes message from message buffer
-            self.delete_message_from_buffer(agent)
+            if self.deleting_used:
+                self.delete_message_from_buffer(agent)
         #print(messages_agents)
         messages = messages_agents + messages_bases
         #print("Messages:", messages)
+        self.recived_messages_agents.clear()
         for agent in self.world.agents: # step 3 from the com kernel in the pdf
             #print("\n", agent.name)
             pre_buffer = []
@@ -685,6 +982,7 @@ class Info_relay_env(ParallelEnv):
                 agent.message_buffer[index] = deepcopy(pre_buffer[i])
                 #agent.message_buffer[index] = pre_buffer[i][:]
                 #agent.message_buffer[index] = [x[:] if isinstance(x,list) else x for x in pre_buffer[i]]
+                self.recived_messages_agents.append(deepcopy(pre_buffer[i]))
                 
 
             # update the time of all non-empty message_buffer slots
@@ -693,20 +991,19 @@ class Info_relay_env(ParallelEnv):
             #print(f"{agent.name}'s message_buffer: {agent.message_buffer}")
 
 
-        self.recived_messages.clear() # reset this for each timestep, used to keep track of messages recieved by bases now
+        self.recived_messages_bases.clear() # reset this for each timestep, used to keep track of messages recieved by bases now
         # do the same thing but for bases
         for base in self.world.bases: # step 4 from pdf
             # check each transmitted messaged if it reached this base and then add it to the (inf big) message buffer
-            # Only adds messages that has ben sent by agents?? Chnage messages to messages_agents!
+            # Only adds messages that has ben sent by agents - not other bases
             for _, message in enumerate(messages_agents):
+                if self.get_entity_by_name(message[4][0]).name == base.name: # OBS fixa och dubbelkolla - räcker med message[4][0]?
+                    continue # skips this iteration if the sent message started from the same base
+
                 transmitter = self.get_entity_by_name(message[4][-1]) # the latest entity to transmit
-    
-                if transmitter.name == base.name: # transmitter is base does not seem to work here??
-                    continue # skips this iteration if the sent message is from the base itself
 
                 SNR = self.calculate_SNR(base, transmitter)
                 if self.check_signal_detection(SNR):
-                    pass
                     base.message_buffer.append(deepcopy(message))
                     #base.message_buffer.append(message[:])
                     #base.message_buffer.append([x[:] if isinstance(x, list) else x for x in message])
@@ -715,16 +1012,11 @@ class Info_relay_env(ParallelEnv):
                     # update the time here as the time for delivered messages will stop ticking
                     base.message_buffer[-1][3] += 1
 
-                    self.recived_messages.append(message) # OBS no copy <-- should not be changed 
+                    self.recived_messages_bases.append(base.message_buffer[-1]) # OBS no copy <-- should not be changed 
                 else:
                     pass # no message recieved - should something be done here?
 
             #print(f"{base.name}'s message_buffer: {base.message_buffer}")
-
-        # clear memory of the lists
-        #messages.clear()
-        #messages_agents.clear()
-        #messages_bases.clear()
 
 
     def calculate_transmission_radius(self, entity):
@@ -773,43 +1065,50 @@ class Info_relay_env(ParallelEnv):
         return SNR
     """
 
-    def calculate_SNR(self, reciever, transmitter):
-        """
-        Calculates the SNR between transmitter and reciever. It is assumed that all entities can listen uniformly in all directions.
-        All bases send uniformly in all directions. All agents send in the direction of its antenna
-        """
-        # agent is reciever, r, other is transmitter, t
-        SNR = 0
-        rel_pos = transmitter.state.p_pos - reciever.state.p_pos # t - r
+    # def calculate_SNR(self, reciever, transmitter):
+    #     """
+    #     Calculates the SNR between transmitter and reciever. It is assumed that all entities can listen uniformly in all directions.
+    #     All bases send uniformly in all directions. All agents send in the direction of its antenna
+    #     """
+    #     # agent is reciever, r, other is transmitter, t
+    #     SNR = 0
+    #     rel_pos = transmitter.state.p_pos - reciever.state.p_pos # t - r
 
-        alpha = np.arctan2(rel_pos[1], rel_pos[0]) #alpha is the angle between x-axis and the line between the drones
+    #     #alpha = np.arctan2(rel_pos[1], rel_pos[0]) #alpha is the angle between x-axis and the line between the drones
       
-        #alpha = np.arctan(rel_pos[1]/rel_pos[0]) # the angle between x-axis and the line bweteen the drones
-        #testar en annan arctan func
-        #if isinstance(reciever, Base): # for when bases check for detection
-        #    phi_r = 0
-        #else:
-        #    phi_r = alpha - reciever.state.theta 
-        #    phi_r = np.arctan2(np.sin(phi_r), np.cos(phi_r)) # normalize phi to between [-pi,pi]
+    #     #alpha = np.arctan(rel_pos[1]/rel_pos[0]) # the angle between x-axis and the line bweteen the drones
+    #     #testar en annan arctan func
+    #     #if isinstance(reciever, Base): # for when bases check for detection
+    #     #    phi_r = 0
+    #     #else:
+    #     #    phi_r = alpha - reciever.state.theta 
+    #     #    phi_r = np.arctan2(np.sin(phi_r), np.cos(phi_r)) # normalize phi to between [-pi,pi]
 
-        phi_r = 0 # all entities see in all directions uniformly
+    #     phi_r = 0 # all entities see in all directions uniformly
+    #     phi_t = 0
         
-        if isinstance(transmitter, Base) or isinstance(transmitter, Emitter):
-            phi_t = 0 ## bases and emitter send in all directions with the same power 
-        else:
-            phi_t = alpha - transmitter.state.theta + np.pi
-            #phi_t = alpha - transmitter.state.theta 
-            phi_t = np.arctan2(np.sin(phi_t), np.cos(phi_t))
+    #     #if isinstance(transmitter, Base) or isinstance(transmitter, Emitter):
+    #     #    phi_t = 0 ## bases and emitter send in all directions with the same power 
+    #     #else:
+    #     #    phi_t = alpha - transmitter.state.theta + np.pi
+    #         #phi_t = alpha - transmitter.state.theta 
+    #     #    phi_t = np.arctan2(np.sin(phi_t), np.cos(phi_t))
         
-        if abs(phi_r) > np.pi/2 or abs(phi_t) > np.pi/2: # the drones do not look at each other
-            SNR = 0
-        else:
-            SNR = transmitter.transmit_power * np.cos(phi_t) * np.cos(phi_r) / (
-                np.linalg.norm(rel_pos) * reciever.internal_noise)**2
+    #     if abs(phi_r) > np.pi/2 or abs(phi_t) > np.pi/2: # the drones do not look at each other
+    #         SNR = 0
+    #     else:
+    #         SNR = transmitter.transmit_power * np.cos(phi_t) * np.cos(phi_r) / (
+    #             np.linalg.norm(rel_pos) * reciever.internal_noise)**2
 
-        #print(f"reciever {reciever.name}, transmitter {transmitter.name}, phi_r/phi_t: {phi_r}/{phi_t} SNR: ", SNR)
+    #     #print(f"reciever {reciever.name}, transmitter {transmitter.name}, phi_r/phi_t: {phi_r}/{phi_t} SNR: ", SNR)
 
-        return SNR
+    #     return SNR
+    
+    def calculate_SNR(self, reciever, transmitter):
+        # SNR calculation in the isotropic sending and receiving scenarios 
+        rel_pos = transmitter.state.p_pos - reciever.state.p_pos
+
+        return transmitter.transmit_power/(np.linalg.norm(rel_pos) * reciever.internal_noise)**2
 
 
     def base_observation(self, base): # anropa i reward-funktionen?
@@ -962,7 +1261,7 @@ class Info_relay_env(ParallelEnv):
     
         for observed_agent in self.world.agents:  # Loop over all agents (including self)
             for msg in observed_agent.message_buffer:  # Read messages from each agent's buffer
-                msg_id = msg[1]  # Continuous signal
+                msg_id = msg[1] 
                 destination = msg[2]  
                 timestamp = msg[3]
                 communication_observation.extend([msg_id, destination, timestamp])
@@ -975,28 +1274,53 @@ class Info_relay_env(ParallelEnv):
         """
 
         # Convert to numpy array
-        communication_observation = np.array(communication_observation, dtype=np.float64)
+        communication_observation = np.array(communication_observation, dtype=np.float32)
     
         # Return one flat observation array
         return np.concatenate([physical_observation, communication_observation])
+
 
     def partial_observation(self, agent):
         """
         Here the partial observation model will be implemenetd later on
         """
         pass
+
+    def simple_observation(self, agent):
+        """Observation in simple games without communication"""
+
+        base_pos = []
+        for base in self.world.bases:
+            base_pos.append(base.state.p_pos - agent.state.p_pos)
+
+        other_pos = []
+        for other in self.world.agents:
+            if other is agent:
+                continue
+            else:
+                other_pos.append(other.state.p_pos - agent.state.p_pos)
+                #other_vel.append(other.state.p_vel)
+                
+
+        ## OBS really need to dubbelcheck if this is the most efficient way to store observations
+        # for example: agent's own state can be stored in the same array as all others? 
+        return np.concatenate(
+            #[agent.state.p_vel]
+            [agent.state.p_pos]
+            + base_pos
+            #+ other_vel
+            + other_pos
+        )
+
     
     def observe(self, agent): # these could be included in the Scenario class together with world make/reset
         return self.full_relative_observation(agent)
+        #return self.simple_observation(agent)
 
     def observe_all(self):
         """Return observations for all agents as a dictionary"""
         return {agent.name: self.observe(agent) for agent in self.world.agents}
 
-
-    #def render(self):
-    #    pass # try to import something already done?
-    #        # or maybe use basic graphics in python for simplicity - later unity 
 
     def _seed(self, seed=None):
         self.np_random, seed = seeding.np_random(seed)
@@ -1038,8 +1362,8 @@ class Info_relay_env(ParallelEnv):
 
         # update bounds to center around agent
         all_poses = [entity.state.p_pos for entity in self.world.entities]
-        cam_range = np.max(np.abs(np.array(all_poses)))
-        cam_range = 1 # obs just to check how it looks without scaling
+        cam_range = max(np.max(np.abs(np.array(all_poses))),1)
+        #cam_range = 1 # obs just to check how it looks without scaling
 
         # update geometry and text positions
         text_line = 0
@@ -1074,10 +1398,15 @@ class Info_relay_env(ParallelEnv):
             pygame.draw.circle(
                 self.screen, (0, 0, 0), (x, y), entity.size * 350, 1
             )  # borders
-            scaled_transmission_radius = (self.transmission_radius / cam_range) * (self.width // 2) * 0.9
+            scaled_transmission_radius_bases = (self.transmission_radius_bases / cam_range) * (self.width // 2) * 0.9
             if isinstance(entity, Base): # transmit radius for bases
                 pygame.draw.circle(
-                    self.screen, (0, 0, 0), (x, y), scaled_transmission_radius, 1
+                    self.screen, (0, 0, 0), (x, y), scaled_transmission_radius_bases, 1
+                )  # signal transmit radius
+            if isinstance(entity, Drone) and self.com_used:
+                scaled_transmission_radius_drones = (self.transmission_radius_drones / cam_range) * (self.width // 2) * 0.9
+                pygame.draw.circle(
+                    self.screen, (0, 0, 0), (x, y), scaled_transmission_radius_drones, 1
                 )  # signal transmit radius
             assert (
                 0 < x < self.width and 0 < y < self.height
@@ -1092,31 +1421,32 @@ class Info_relay_env(ParallelEnv):
 
             # text - and direction of antenna
             if isinstance(entity, Drone):
-                
-                # drawing the arrow - direction of antenna
-                arrow_length = 25  # length of the arrow
-                theta = entity.state.theta
-                end_x = x + arrow_length * np.cos(theta)
-                end_y = y - arrow_length * np.sin(theta)  # subtract because of flipped y-axis
+                # only draw the arrow representing the antenna if the antenna is controlled by the drone
+                if self.antenna_used > 1:
+                    # drawing the arrow - direction of antenna
+                    arrow_length = 25  # length of the arrow
+                    theta = entity.state.theta
+                    end_x = x + arrow_length * np.cos(theta)
+                    end_y = y - arrow_length * np.sin(theta)  # subtract because of flipped y-axis
 
-                pygame.draw.line(self.screen, (0, 0, 0), (x, y), (end_x, end_y), 2)  # arrow shaft
-                
-                # the arrowhead is drawn as an polygon
-                head_length = 7  # length of the arrowhead
-                head_angle = np.pi / 6  # angle of the arrowhead
-                left_x = end_x - head_length * np.cos(theta - head_angle)
-                left_y = end_y + head_length * np.sin(theta - head_angle)  # flipped y-axis
-                right_x = end_x - head_length * np.cos(theta + head_angle)
-                right_y = end_y + head_length * np.sin(theta + head_angle)  # flipped y-axis
-                pygame.draw.polygon(
-                self.screen, (0, 0, 0), [(end_x, end_y), (left_x, left_y), (right_x, right_y)])
+                    pygame.draw.line(self.screen, (0, 0, 0), (x, y), (end_x, end_y), 2)  # arrow shaft
+
+                    # the arrowhead is drawn as an polygon
+                    head_length = 7  # length of the arrowhead
+                    head_angle = np.pi / 6  # angle of the arrowhead
+                    left_x = end_x - head_length * np.cos(theta - head_angle)
+                    left_y = end_y + head_length * np.sin(theta - head_angle)  # flipped y-axis
+                    right_x = end_x - head_length * np.cos(theta + head_angle)
+                    right_y = end_y + head_length * np.sin(theta + head_angle)  # flipped y-axis
+                    pygame.draw.polygon(
+                    self.screen, (0, 0, 0), [(end_x, end_y), (left_x, left_y), (right_x, right_y)])
 
                 if entity.silent: # kanske rita tysta drönare annorlunda? eller markera sändning på ett visst visuellt sätt
                     continue
                 if np.all(entity.state.c == 0):
                     word = "_"
                 elif entity.state.c == None:
-                    word = "communication state not defined"
+                    word = "___"
                 else: 
                     word = " "
                 #else:

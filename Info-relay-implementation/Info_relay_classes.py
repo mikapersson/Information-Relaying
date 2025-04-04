@@ -121,6 +121,8 @@ class Base(Entity):  # properties of Base entities
     def __init__(self):
         super().__init__()
         self.action = Action() # ska detta vara en action - kommer inte tränas??
+
+        self.generate_messages = True
     
     def __str__(self):
         return super().__str__()
@@ -171,7 +173,7 @@ class Drone(Entity):  # properties of agent entities
         # a list of the possible messages - list of lists (messages)
         self.message_buffer = []#np.zeros([self.message_buffer_size, 5]) 
 
-        self.movement_cost = 0.01 # the cost of movement - scales with magnitude of movement 
+        self.movement_cost = 0.01*4 # the cost of movement - scales with magnitude of movement 
         self.radar_cost = 0.005 # cost of changing direction of radar
         self.transmission_cost = 0.001 # cost of transmitting a message 
 
