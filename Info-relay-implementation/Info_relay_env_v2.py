@@ -43,7 +43,7 @@ class Info_relay_env(ParallelEnv):
     def __init__(self, num_agents = 1, num_bases = 2, num_emitters = 0, world_size = 1,
                  a_max = 1.0, omega_max = np.pi/4, step_size = 0.05, max_cycles = 25, 
                  continuous_actions = True, one_hot_vector = False, multi_discrete_actions = False, one_discrete_action_per_step = False,
-                 antenna_used = True, com_used = True, deleting_used = True, render_mode = None):
+                 antenna_used = True, com_used = True, deleting_used = True, num_messages = 1, render_mode = None):
         #super().__init__()
         self.render_mode = render_mode
         pygame.init()
@@ -75,6 +75,8 @@ class Info_relay_env(ParallelEnv):
 
         self._seed() # maybe set up seed in another way?? now imprting from gymnasium
 
+        self.num_messages = num_messages # to keep track of the number of messages = to the number of message buffer slots the agents will have
+
         # set all World variables first - contains all enteties
         self.world = self.make_world(num_agents, num_bases, num_emitters)
 
@@ -100,20 +102,9 @@ class Info_relay_env(ParallelEnv):
             shape=(state_dim,),
             dtype=np.float32,
         )
-
-
         
-        #all agents get their own obs/action spaces - stored in a Dict structure 
-        #obs bases should observe for masseges aswell, right? They can use the same obs_space with different masking
         
         """
-        self.observation_spaces = spaces.Dict(
-            {agent: spaces.Box(low = -np.inf, high = np.inf, 
-            shape = (2+dim_p*self.n_agents + dim_p*self.num_bases + dim_p*self.num_emitters,), dtype = np.float64)  
-            for agent in self.possible_agents} ## kanske BOX(num total agents+other)?
-            #shape: the positions of all enteties in the world as well as the velocity of itself
-        ) #OBS!! fixa till och dubbelkolla - behöver även kunna observera meddelanden? Hur kodas?
-        """"""
         self.observation_spaces = {agent.name: spaces.Dict({
                 "physical_observation": spaces.Box(
                     low=-np.inf, high=np.inf, 
@@ -207,7 +198,7 @@ class Info_relay_env(ParallelEnv):
                 # chose the number of discretized actions (ex velocity: [-max, 0, +max])
                 num_velocity_actions = 3
                 num_angle_actions = 3 # should be atleast 3 (and uneven) if used
-                num_com_actions = 2 # should be one more than the number of messages. OBS remove hard-coding
+                num_com_actions = self.num_messages + 1 # should be one more than the number of messages (one more than the message buffer size). 
                 
                 if not self.antenna_used: # the agents do not use the antenna - isotropic transmission
                     num_angle_actions = 1
@@ -273,7 +264,7 @@ class Info_relay_env(ParallelEnv):
             agent.u_range = [self.a_max, self.omega_max] # maximum control range = a_max, omega_max
             agent.internal_noise = 1 ## set internal noise level
             agent.color = np.array([0, 0.33, 0.67])
-            agent.message_buffer_size = 1
+            agent.message_buffer_size = self.num_messages
 
             #agent.transmit_power = 1 # set to reasonable levels
 
@@ -314,57 +305,62 @@ class Info_relay_env(ParallelEnv):
 
         return positions    
     
-    def generate_agent_positions(self, np_random, base_positions, radius):
-        """
-        Generate positions for agents along a line between two bases.
-        Each agent is randomly placed within its own disk along the line,
-        and the distance between disks is equal.
-        """
-        positions = []
-    
-        line_vector = base_positions[0] - base_positions[1]
-        segment_vector = line_vector / (self.n_agents + 1)
-    
-        for i in range(self.n_agents):
-            center_pos = base_positions[1] + (i + 1) * segment_vector  # Equally spaced center
-    
-            # Sample within a circle centered at center_pos
-            r = np_random.uniform(0, radius)
-            theta = np_random.uniform(0, 2 * np.pi)
-            offset = np.array([r * np.cos(theta), r * np.sin(theta)])
-    
-            final_pos = center_pos + offset
-            positions.append(final_pos)
-        
-        # randomize the order of the agents so that they all learn all "positions"
-        np_random.shuffle(positions)
-
-        return np.array(positions)
-    
     # def generate_agent_positions(self, np_random, base_positions, radius):
     #     """
-    #     Generate positions for agents inside a circular disk with a certain radius. 
-    #     The center of the disk is the the middlepoint of the bases.  
+    #     Generate positions for agents along a line between two bases.
+    #     Each agent is randomly placed within its own disk along the line,
+    #     and the distance between disks is equal.
     #     """
     #     positions = []
     
-    #     self.center = np.mean(base_positions, axis=0)  # Midpoint of bases
+    #     line_vector = base_positions[0] - base_positions[1]
+    #     segment_vector = line_vector / (self.n_agents + 1)
+    
     #     for i in range(self.n_agents):
-    #         radius_agent = np_random.uniform(0, radius)  # Random radius
-    #         angle = np_random.uniform(0, 2 * np.pi)  # Random angle
-    #         offset = np.array([radius_agent * np.cos(angle), radius_agent * np.sin(angle)])  # Convert to Cartesian
-    #         positions.append(self.center + offset)
+    #         center_pos = base_positions[1] + (i + 1) * segment_vector  # Equally spaced center
+    
+    #         # Sample within a circle centered at center_pos
+    #         r = np_random.uniform(0, radius)
+    #         theta = np_random.uniform(0, 2 * np.pi)
+    #         offset = np.array([r * np.cos(theta), r * np.sin(theta)])
+    
+    #         final_pos = center_pos + offset
+    #         positions.append(final_pos)
+        
+    #     # randomize the order of the agents so that they all learn all "positions"
+    #     np_random.shuffle(positions)
 
     #     return np.array(positions)
+    
+    def generate_agent_positions(self, np_random, base_positions, radius):
+        """
+        Generate positions for agents inside a circular disk with a certain radius. 
+        The center of the disk is the the middlepoint of the bases.  
+        """
+        positions = []
+    
+        self.center = np.mean(base_positions, axis=0)  # Midpoint of bases
+        for i in range(self.n_agents):
+            radius_agent = np_random.uniform(0, radius)  # Random radius
+            angle = np_random.uniform(0, 2 * np.pi)  # Random angle
+            offset = np.array([radius_agent * np.cos(angle), radius_agent * np.sin(angle)])  # Convert to Cartesian
+            positions.append(self.center + offset)
+
+        return np.array(positions)
     
     def reset_world(self, world, np_random): # np_ranodm should be some sort of seed for reproducability
         """
         Resets the world and all enteties - called inside the reset function.
         Randomly distributes the bases and emitters - all drones start at one of the bases (first in list)
         """
+        for i, emitter in enumerate(world.emitters):
+            #emitter.state.p_pos = np_random.uniform(-self.world_size, self.world_size, world.dim_p)
+            emitter.state.p_pos = np.zeros(world.dim_p)
+            emitter.state.p_vel = np.zeros(world.dim_p)
+
         world.message_ID_counter = 0 # resets the message_ID counter
         self.radius = self.calculate_transmission_radius(self.world.bases[0]) * (self.n_agents + 1)/2 #OBS ändrade radie
-        base_positions = self.generate_base_positions(np_random, self.radius * np_random.uniform(0.5, 1.0))
+        base_positions = self.generate_base_positions(np_random, self.radius * np_random.uniform(0.25, 0.5))
         for i, base in enumerate(world.bases):
             #base.state.p_pos = np_random.uniform(-self.world_size, self.world_size, world.dim_p)
             base.state.p_pos = base_positions[i]
@@ -376,27 +372,31 @@ class Info_relay_env(ParallelEnv):
             base.color_intensity = 0 # resets graphics so it does not look like it is sending
             base.state.c = 0
 
-        # randomizing which base is sending each episode. 
-        if np.random.binomial(1, 0.5) == 1:
-            world.bases[1].silent = True # only one base sending
-            world.bases[0].generate_messages = False # the same message all the time
-            world.bases[0].silent = False 
-        else:
-            world.bases[0].silent = True 
-            world.bases[1].generate_messages = False 
+        if self.num_messages == 1:
+            # randomizing which base is sending each episode. 
+            if np.random.binomial(1, 0.5) == 1:
+                world.bases[1].silent = True # only one base sending
+                world.bases[0].generate_messages = False # the same message all the time
+                world.bases[0].silent = False 
+            else:
+                world.bases[0].silent = True 
+                world.bases[1].generate_messages = False 
+                world.bases[1].silent = False
+        else: # in the games where all bases transmit
+            world.bases[0].silent = False
+            world.bases[0].generate_messages = False
             world.bases[1].silent = False
+            world.bases[1].generate_messages = False
 
-        for i, emitter in enumerate(world.emitters):
-            #emitter.state.p_pos = np_random.uniform(-self.world_size, self.world_size, world.dim_p)
-            emitter.state.p_pos = np.zeros(world.dim_p)
-            emitter.state.p_vel = np.zeros(world.dim_p)
+            self.bases_dones = {base.name: False for base in world.bases} # used to keep track of if all bases has received their messages
 
-         # Compute the midpoint of all bases
+
+        # Compute the midpoint of all bases
         #base_positions = np.array(positions)
         self.center = np.mean(base_positions, axis=0)  # Midpoint of bases
 
-        radius = self.radius * min(self.iteration_counter / 5000, 1.5) # increases from 0 to 1 
-        #radius = self.radius*1.5
+        #radius = self.radius * min(self.iteration_counter / 5000, 1.5) # increases from 0 to 1 
+        radius = self.radius*1.5
 
         agent_positions = self.generate_agent_positions(np_random, base_positions, radius)
 
@@ -446,7 +446,7 @@ class Info_relay_env(ParallelEnv):
         else:
             infos = {agent.name: None for agent in self.world.agents} # this case (one discrete action) is probably not used but is nedded to be changed in that case
 
-        return observations, infos # while testing
+        return observations, infos 
     
 
     def create_action_mask(self, agent):
@@ -573,15 +573,15 @@ class Info_relay_env(ParallelEnv):
         for agent in self.world.agents: 
             action = actions.get(agent.name, np.zeros(5)) # get the action for each agent
             self.set_action(action, agent)
-        """
-        for agent in self.world.agents:
-            action = actions.get(agent.name, {
-                "physical_action": np.zeros(2),  # Default: no movement
-                "communication_action": np.array([0, 0]) #  Default: no communication
-            })
-            print(action)
-            self.set_daction(action, agent)
-        """
+        
+        # for agent in self.world.agents:
+        #     action = actions.get(agent.name, {
+        #         "physical_action": np.zeros(2),  # Default: no movement
+        #         "communication_action": np.array([0, 0]) #  Default: no communication
+        #     })
+        #     print(action)
+        #     self.set_daction(action, agent)
+        
     
         #print("step", self.timestep)
         # could also just calculate the penalties here if they come only from the actions!
@@ -622,7 +622,6 @@ class Info_relay_env(ParallelEnv):
         #return observations, rewards, terminations, truncations, infos
         return observations, rewards, terminations, truncations, infos
     
-    # 2_way_update - change termination condition to when both bases have recieved one message
     def terminate(self):
         """
         Determins the termination condition for each scenario. 
@@ -630,13 +629,18 @@ class Info_relay_env(ParallelEnv):
 
         Scenario 1: terminates after first correct message delivered
         """
-        if len(self.recived_messages_bases) > 0:
-            #print("messages:", self.recived_messages_bases)
-            msg = self.recived_messages_bases[0] # only one message possible per timestep in ths scenario - still a list
-            if msg[2] == int(msg[4][-1].split("_")[1]):
-                self.agents = []
-                return {agent.name: True for agent in self.world.agents}
+        if self.num_messages == 1: # the one-way communication scenarios
+            if len(self.recived_messages_bases) > 0:
+                #print("messages:", self.recived_messages_bases)
+                msg = self.recived_messages_bases[0] # only one message possible per timestep in ths scenario - still a list
+                if msg[2] == int(msg[4][-1].split("_")[1]):
+                    self.agents = []
+                    return {agent.name: True for agent in self.world.agents}
         
+        else:
+            if all(self.bases_dones.values()):
+                return {agent.name: True for agent in self.world.agents}
+
         return {agent.name: False for agent in self.world.agents}
 
 
@@ -679,15 +683,20 @@ class Info_relay_env(ParallelEnv):
         """
         Rewards given to all agents. Given by correctly delivering messages.
         """
-        ## need to look at all messages that were delivered THIS timestep
-        # could be done with an env attribute that updates each timestep!
         reward = 0
-        for msg in self.recived_messages_bases:
-            if msg[2] == int(msg[4][-1].split("_")[1]): # correct destination
-                #reward += max(100 - 0.5*msg[3], 50) # fine tune so that the reward is large enough! # minus the time it took to deliver message
-                reward = 100 - 50 * (msg[3] / self.max_iter) # this is max 100 and min 50 (as msg[3] is at most max_iter large)
-                break # make sure only one delivered message gets rewarded. Change for other scenarios
+        if self.num_messages == 1:
+            for msg in self.recived_messages_bases:
+                if msg[2] == int(msg[4][-1].split("_")[1]): # correct destination
+                    #reward += max(100 - 0.5*msg[3], 50) # fine tune so that the reward is large enough! # minus the time it took to deliver message
+                    reward = 100 - 50 * (msg[3] / self.max_iter) # this is max 100 and min 50 (as msg[3] is at most max_iter large)
+                    break # make sure only one delivered message gets rewarded. Change for other scenarios
 
+        else:
+            for msg in self.recived_messages_bases:
+                if msg[2] == int(msg[4][-1].split("_")[1]):
+                    if not self.bases_dones[msg[4][-1]]: # if the base is not yet done (has not received its message)
+                        reward += 100/self.num_messages
+                        self.bases_dones[msg[4][-1]] = True # each base is done after receiving one message
         return reward
     
     #rew iter should decrease to 0 throughout training
@@ -876,6 +885,14 @@ class Info_relay_env(ParallelEnv):
                 indices.append(index) 
         return indices
     
+    def check_message_buffer_ids(self, agent):
+        """Returns a list of message ids currently in the buffer and what index they are stored in in the buffer"""
+        indices = []
+        for index, message in enumerate(agent.message_buffer):
+            if message[0] == 1: # if the message exists
+                indices.append([index, message[1]]) 
+        return indices
+    
     
     def generate_new_base_message(self, base):
         """
@@ -940,9 +957,6 @@ class Info_relay_env(ParallelEnv):
         for index in message_indices:
             agent.message_buffer[index][3] += 1
 
-    # 2_way_update - make sure each message(id) can only be in one slot. 
-    # Need to rewrite and optimize. Only one message id in the buffer and this can be replaced with a
-    # message that has been in the communication chain for shorter - better relay system 
     def communication_kernel(self):
         """
         Handels all communications in the env. An implementation of the communication kernel from the pdf
@@ -974,10 +988,10 @@ class Info_relay_env(ParallelEnv):
             # deletes message from message buffer
             if self.deleting_used:
                 self.delete_message_from_buffer(agent)
-        #print(messages_agents)
+
         messages = messages_agents + messages_bases
         #print("Messages:", messages)
-        self.recived_messages_agents.clear()
+        self.recived_messages_agents.clear() # clear for each if changed to dict of lists
         for agent in self.world.agents: # step 3 from the com kernel in the pdf
             #print("\n", agent.name)
             pre_buffer = []
@@ -986,7 +1000,7 @@ class Info_relay_env(ParallelEnv):
                 transmitter = self.get_entity_by_name(message[4][-1]) # the latest entity to transmit
 
                 # skips message if the agent who is listening sent it
-                if transmitter.name == agent.name: # transmitter is agent does not seem to work here
+                if transmitter.name == agent.name: 
                     continue
 
                 SNR = self.calculate_SNR(agent, transmitter)
@@ -997,39 +1011,64 @@ class Info_relay_env(ParallelEnv):
                     pass # no message recieved - should something be done here?
 
             # sort the pre-buffer in descending SNR 
-            pre_buffer.sort(key=lambda messag: messag[-1], reverse=True)
+            pre_buffer.sort(key=lambda message: message[-1], reverse=True)
             
-            # remove the SNR from the pre buffer
+            # remove SNR from the pre buffer
             for msg in pre_buffer:
                 msg.pop()
 
-            # update the buffer according to the rules from the pdf - only update if there is space in buffer
-            available_indices = self.check_message_buffer(agent, 0)
+            if self.num_messages == 1: # the one_way_tranmission scenarios where only one message if used. OBS remove once the more general 
+                # update the buffer according to the rules from the pdf - only update if there is space in buffer
+                available_indices = self.check_message_buffer(agent, 0)
 
-            if len(available_indices) > len(pre_buffer): # there are enough places in the buffer for all messages
-                sampled_indices = random.sample(available_indices, len(pre_buffer)) # take out as many indices as there are messages
-            else: # there are not enough places in the buffer for all messages
-                sampled_indices = available_indices # here we take out as many messages from the pre_buffer as there are slot in the buffert
+                if len(available_indices) > len(pre_buffer): # there are enough places in the buffer for all messages
+                    sampled_indices = random.sample(available_indices, len(pre_buffer)) # take out as many indices as there are messages
+                else: # there are not enough places in the buffer for all messages
+                    sampled_indices = available_indices # here we take out as many messages from the pre_buffer as there are slot in the buffert
 
-            for i, index in enumerate(sampled_indices):
-                # 2_way_update here? or rewrite the com kernel.
-                pre_buffer[i][4].append(agent.name) # adding the agent to the history
-                # adding the message to the buffer - adding copy as not to have weird reference bugs later
-                agent.message_buffer[index] = deepcopy(pre_buffer[i])
-        
-                self.recived_messages_agents.append(deepcopy(pre_buffer[i])) # Obs: could be changed to a dict
+                for i, index in enumerate(sampled_indices): 
+                    pre_buffer[i][4].append(agent.name) # adding the agent to the history
+                    # adding the message to the buffer - adding copy as not to have weird reference bugs later
+                    agent.message_buffer[index] = deepcopy(pre_buffer[i])
 
-            # Going trough and replacing an already existing message if it has existed for a shorter time - better relay chain 
-            for index, message in enumerate(agent.message_buffer):
-                for incoming_msg in pre_buffer:
-                    if message[3] > incoming_msg[3]: 
-                        temp_msg = deepcopy(incoming_msg)
-                        temp_msg[4].append(agent.name)
-                        agent.message_buffer[index] = temp_msg
-                        self.recived_messages_agents.append(deepcopy(temp_msg))
-                        continue # skips the loop if one message has been recieved - only reward for one of the messages
+                    self.recived_messages_agents.append(deepcopy(pre_buffer[i])) # Obs: could be changed to a dict
 
-                
+                # Going trough and replacing an already existing message if it has existed for a shorter time - better relay chain (added after deleting was removed)
+                for index, message in enumerate(agent.message_buffer):
+                    for incoming_msg in pre_buffer:
+                        if message[3] > incoming_msg[3]: 
+                            temp_msg = deepcopy(incoming_msg)
+                            temp_msg[4].append(agent.name)
+                            agent.message_buffer[index] = temp_msg
+                            self.recived_messages_agents.append(deepcopy(temp_msg))
+                            continue # skips the loop if one message has been recieved - only reward for one of the messages
+
+            else: # all other scenarios (more than one message)
+                for i, in_msg in enumerate(pre_buffer):
+                    message_ids = self.check_message_buffer_ids(agent)
+                    if in_msg[1] not in [id for _, id in message_ids]: # extract only the ids, not indices in the buffer where those ids are stored
+                        available_indices = self.check_message_buffer(agent, 0) # non-occupied buffer slots
+                        index = random.sample(available_indices, 1)[0]
+
+                        pre_buffer[i][4].append(agent.name) # adding the agent to the history
+                        # adding the message to the buffer - adding copy as not to have weird reference bugs later
+                        agent.message_buffer[index] = deepcopy(pre_buffer[i])
+
+                        self.recived_messages_agents.append(deepcopy(pre_buffer[i])) # Obs: could be changed to a dict
+                    
+                    else: # if the message already exists in the buffer
+                        # find the right spot in the buffer corresponding to the message id - then replace if msg[3] is lower
+                        message_ids = self.check_message_buffer_ids(agent)
+
+                        buffer_index = next((idx for idx, id in message_ids if id == in_msg[1]), None) # get the index in the buffer where the a message with the same id is stored 
+
+                        if agent.message_buffer[buffer_index][3] > in_msg[3]:
+                            temp_msg = deepcopy(in_msg)
+                            temp_msg[4].append(agent.name)
+                            agent.message_buffer[buffer_index] = temp_msg
+                            self.recived_messages_agents.append(deepcopy(temp_msg))
+                            # OBS still need to make sure that each message is only replaced once (max) each timestep
+
 
             # update the time of all non-empty message_buffer slots
             self.update_message_time(agent)
@@ -1114,45 +1153,46 @@ class Info_relay_env(ParallelEnv):
         Calculates the SNR between transmitter and reciever. It is assumed that all entities can listen uniformly in all directions.
         All bases send uniformly in all directions. All agents send in the direction of its antenna
         """
-        # agent is reciever, r, other is transmitter, t
-        SNR = 0
-        rel_pos = transmitter.state.p_pos - reciever.state.p_pos # t - r
-
-        alpha = np.arctan2(rel_pos[1], rel_pos[0]) #alpha is the angle between x-axis and the line between the drones
-      
-        #alpha = np.arctan(rel_pos[1]/rel_pos[0]) # the angle between x-axis and the line bweteen the drones
-        #testar en annan arctan func
-        #if isinstance(reciever, Base): # for when bases check for detection
-        #    phi_r = 0
-        #else:
-        #    phi_r = alpha - reciever.state.theta 
-        #    phi_r = np.arctan2(np.sin(phi_r), np.cos(phi_r)) # normalize phi to between [-pi,pi]
-
-        phi_r = 0 # all entities see in all directions uniformly
-        #phi_t = 0
-        
-        if isinstance(transmitter, Base) or isinstance(transmitter, Emitter):
-           phi_t = 0 ## bases and emitter send in all directions with the same power 
-        else:
-           phi_t = alpha - transmitter.state.theta + np.pi
-            #phi_t = alpha - transmitter.state.theta 
-           phi_t = np.arctan2(np.sin(phi_t), np.cos(phi_t))
-        
-        if abs(phi_r) > np.pi/2 or abs(phi_t) > np.pi/2: # the drones do not look at each other
+        if self.antenna_used:
+            # agent is reciever, r, other is transmitter, t
             SNR = 0
+            rel_pos = transmitter.state.p_pos - reciever.state.p_pos # t - r
+
+            alpha = np.arctan2(rel_pos[1], rel_pos[0]) #alpha is the angle between x-axis and the line between the drones
+
+            #alpha = np.arctan(rel_pos[1]/rel_pos[0]) # the angle between x-axis and the line bweteen the drones
+            #testar en annan arctan func
+            #if isinstance(reciever, Base): # for when bases check for detection
+            #    phi_r = 0
+            #else:
+            #    phi_r = alpha - reciever.state.theta 
+            #    phi_r = np.arctan2(np.sin(phi_r), np.cos(phi_r)) # normalize phi to between [-pi,pi]
+
+            phi_r = 0 # all entities see in all directions uniformly
+            #phi_t = 0
+
+            if isinstance(transmitter, Base) or isinstance(transmitter, Emitter):
+               phi_t = 0 ## bases and emitter send in all directions with the same power 
+            else:
+               phi_t = alpha - transmitter.state.theta + np.pi
+                #phi_t = alpha - transmitter.state.theta 
+               phi_t = np.arctan2(np.sin(phi_t), np.cos(phi_t))
+
+            if abs(phi_r) > np.pi/2 or abs(phi_t) > np.pi/2: # the drones do not look at each other
+                SNR = 0
+            else:
+                SNR = transmitter.transmit_power * np.cos(phi_t) * np.cos(phi_r) / (
+                    np.linalg.norm(rel_pos) * reciever.internal_noise)**2
+
+            #print(f"reciever {reciever.name}, transmitter {transmitter.name}, phi_r/phi_t: {phi_r}/{phi_t} SNR: ", SNR)
+
+            return SNR
+        
         else:
-            SNR = transmitter.transmit_power * np.cos(phi_t) * np.cos(phi_r) / (
-                np.linalg.norm(rel_pos) * reciever.internal_noise)**2
+            # SNR calculation in the isotropic sending and receiving scenarios 
+            rel_pos = transmitter.state.p_pos - reciever.state.p_pos
 
-        #print(f"reciever {reciever.name}, transmitter {transmitter.name}, phi_r/phi_t: {phi_r}/{phi_t} SNR: ", SNR)
-
-        return SNR
-    
-    # def calculate_SNR(self, reciever, transmitter):
-    #     # SNR calculation in the isotropic sending and receiving scenarios 
-    #     rel_pos = transmitter.state.p_pos - reciever.state.p_pos
-
-    #     return transmitter.transmit_power/(np.linalg.norm(rel_pos) * reciever.internal_noise)**2
+            return transmitter.transmit_power/(np.linalg.norm(rel_pos) * reciever.internal_noise)**2
 
 
     def base_observation(self, base): # anropa i reward-funktionen?
