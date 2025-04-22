@@ -8,7 +8,7 @@ from Info_relay_env_v2 import Info_relay_env
 import MPE_info_relay
 
 #parallel_env = Info_relay(num_agents=2)
-parallel_env = Info_relay_env(num_agents = 6, num_bases=2, max_cycles = 10, com_used=True, antenna_used=False, deleting_used=False,
+parallel_env = Info_relay_env(num_agents = 2, num_bases=2, max_cycles = 100, com_used=True, antenna_used=True, deleting_used=False,
                               continuous_actions=False, render_mode="human")
 #arallel_env = MPE_info_relay.parallel_env(render_mode = "human")
 print("init done")
