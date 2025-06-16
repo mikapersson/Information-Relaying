@@ -89,7 +89,7 @@ class Entity:  # properties and state of physical world entity
         # the agent cannot send communication (different from self.c i state/action??)
         self.silent = False
 
-        self.transmit_power = 0.5 # in SNR calculation
+        self.transmit_power = 0.5625 # in SNR calculation
 
         self.internal_noise = 1 # internal noise for SNR calculation
 
