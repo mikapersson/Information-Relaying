@@ -6,15 +6,6 @@ from dataclasses import dataclass, field
 Taken from pettingzoo MPE and altered 
 """
 
-@dataclass(slots=True)
-class Message:
-    def __init__(self):
-        self.exist = 0
-        self.ID = None
-        self.destination = None
-        self.frequency = 0
-        self.history = []
-
         
 
 class EntityState:  # physical/external base state of all entities
@@ -275,7 +266,7 @@ class World:  # multi-agent world
                         ) * entity.max_speed)
                     
 
-
+    # TODO - uppdatera så att fiendens state också uppdateras varje tidsteg - här eller egen funktion.
     # the simpler model without acceleration - here action is setting the new velocity (and omega)
     def apply_process_model_2_drones(self, agent):
         """
@@ -314,19 +305,6 @@ class World:  # multi-agent world
         ## now the position is updated
         agent.state.p_pos += agent.state.p_vel * self.dt 
 
-
-    def apply_communication_kernel(self, agent):
-        """
-        Applies the communication transition kernel.
-        Fixes communication and deleting of messages from the message buffer
-        """
-        pass
-
-        
-
-    # impleent later when bases and emitters start moving - or use the same as drones if they have similar charachteristics
-    def apply_process_model_2_others(self):
-        pass
 
     ## updates the communication states of all enteties       
     def update_entity_state(self, entity):
