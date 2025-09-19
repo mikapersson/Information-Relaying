@@ -39,7 +39,7 @@ alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 # - en klass per scenario. Detta liknar det som är byggt i pettingzoo MPE environment. 
 # likt hur det är kodat i mapparna under https://github.com/Farama-Foundation/PettingZoo/tree/master/pettingzoo/mpe 
 
-# TODO - lägg till fiende och störsändningsfunktionalitet. Fiendens state (position) ska uppdateras i info_relay_classes likt agenterna.
+# TODO(SAMSAM) - lägg till fiende och störsändningsfunktionalitet. Fiendens state (position) ska uppdateras i info_relay_classes likt agenterna.
 
 # TODO - baserna börjar endast på x-axeln. Samma bas sänder varje spel - börjar alltid i origo
 
