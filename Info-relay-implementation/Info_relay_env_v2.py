@@ -35,23 +35,15 @@ alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 ##ide: ska det vara egna agent / emitter classer, eller ska allt ingå i env:et?
 
 
-# BIG TODO (optional men starkt rekommenderat) - omformulera meddelandebufferten - ersätt med en boolean som bara visar om meddelandet ska finnas eller ej
-# kommer kräva omskrivningar på måga ställen i koden - speciellt i communication_kernel och observation - jag fixar
-
 # BIG TODO (optional) - flytta ut, make_world, reset_world, observe, reward, terminate med hjälpfunktioner till egna classer -
 # - en klass per scenario. Detta liknar det som är byggt i pettingzoo MPE environment. 
-# likt hur det är kodat i mapparna under https://github.com/Farama-Foundation/PettingZoo/tree/master/pettingzoo/mpe
-
-# TODO - ta bort deleting helt från koden - jag fixar 
+# likt hur det är kodat i mapparna under https://github.com/Farama-Foundation/PettingZoo/tree/master/pettingzoo/mpe 
 
 # TODO - lägg till fiende och störsändningsfunktionalitet. Fiendens state (position) ska uppdateras i info_relay_classes likt agenterna.
 
 # TODO - baserna börjar endast på x-axeln. Samma bas sänder varje spel - börjar alltid i origo
-# TODO - baserna ska kunna ta emot meddelanden från varandra? 
 
 # TODO - dubbelkolla belöningsfunktionen
-
-# TODO - Dubbelkolla actions - ta bort sändning som ett beslut
 
 
 class Info_relay_env(ParallelEnv):
@@ -63,8 +55,8 @@ class Info_relay_env(ParallelEnv):
     def __init__(self, num_agents = 1, num_bases = 2, num_emitters = 0, world_size = 1,
                  a_max = 1.0, omega_max = np.pi/4, step_size = 0.05, max_cycles = 25, 
                  continuous_actions = True, one_hot_vector = False, antenna_used = True, 
-                 com_used = True, deleting_used = True, num_messages = 1, use_action_masking = True, 
-                 random_base_pose = True, observe_self = False, render_mode = None):
+                 com_used = True, num_messages = 1, base_always_transmitting = True, 
+                 random_base_pose = True, observe_self = True, render_mode = None):
         #super().__init__()
         self.render_mode = render_mode
         pygame.init()
@@ -102,11 +94,10 @@ class Info_relay_env(ParallelEnv):
 
         self.antenna_used = antenna_used #OBS ändra när antennen ska styras igen
         self.com_used = com_used #OBS - communications can be turned of to test just the movement in different tasks
-        self.deleting_used = deleting_used # if the agents are able to decide to delete messages. If deleting is part of the action space
         self.observe_self = observe_self
         self.angle_coord_rotation = 0 # declared as a class variabel to be reach in observation and in setting actions
 
-        self.use_action_masking = use_action_masking # if action masking is used. If False: inadmissible actions are possible but harshly punished
+        self.base_always_transmitting = base_always_transmitting # decides if the base is sending every time step. If false, the base send sporadically
 
         self.random_base_pose = random_base_pose # if the bases starting positions are random or always located on the x-axis
 
@@ -117,7 +108,7 @@ class Info_relay_env(ParallelEnv):
         
         # Ny kommentar: används ej inne i klassen - vet ej om benchmarl letar efter detta så avvaktar med att ta bort till testat med benchmarl
         # OBS really need to dubble check the state space - what is to be included - is it neccessary??
-        state_dim = dim_p * (self.n_agents - 1) + dim_p * self.num_bases + dim_p * self.num_emitters + self.n_agents * self.world.agents[0].message_buffer_size * 3
+        state_dim = dim_p * (self.n_agents - 1) + dim_p * self.num_bases + self.n_agents * self.world.agents[0].message_buffer_size * 3
         self.state_space = spaces.Box(
             low=-np.float32(np.inf),
             high=+np.float32(np.inf),
@@ -129,7 +120,7 @@ class Info_relay_env(ParallelEnv):
             self.observation_spaces = {
                 agent.name: spaces.Box(
                     low=-np.inf, high=np.inf,
-                    shape=(self.n_agents + dim_p * (self.n_agents - 1 + observe_self) + dim_p * self.num_bases + dim_p * self.num_emitters + self.n_agents * agent.message_buffer_size * 4,),
+                    shape=(self.n_agents + dim_p * (self.n_agents - 1 + observe_self) + dim_p * self.num_bases + self.n_agents,),
                     dtype=np.float32
                 ) for agent in self.world.agents
             }
@@ -137,14 +128,14 @@ class Info_relay_env(ParallelEnv):
             self.observation_spaces = {
                 agent.name: spaces.Box(
                     low=-np.inf, high=np.inf,
-                    shape=(dim_p * (self.n_agents - 1 + observe_self) + dim_p * self.num_bases + dim_p * self.num_emitters + self.n_agents * agent.message_buffer_size * 4,),
+                    shape=(dim_p * (self.n_agents - 1 + observe_self) + dim_p * self.num_bases + self.n_agents,),
                     dtype=np.float32
                 ) for agent in self.world.agents
             }
 
         # sets the action spaces for the two different continous action space cases
         if self.continuous_actions:
-            if self.one_hot_vector:
+            if self.one_hot_vector: # inte updaterad
                 self.action_spaces = {
                 agent.name: spaces.Box(
                     low=np.concatenate((
@@ -163,8 +154,8 @@ class Info_relay_env(ParallelEnv):
             else:
                 self.action_spaces = {
                 agent.name: spaces.Box(
-                    low=np.array([0.0, 0.0, 0.0, 0.0, 0.0]),  
-                    high=np.array([1.0, 1.0, 1.0, 1.0, 1.0]),  
+                    low=np.array([0.0, 0.0, 0.0]),  
+                    high=np.array([1.0, 1.0, 1.0]),  
                     dtype=np.float64
                 ) 
                 for agent in self.world.agents
@@ -174,26 +165,20 @@ class Info_relay_env(ParallelEnv):
             # chose the number of discretized actions (ex velocity: [-max, 0, +max])
             num_velocity_actions = 3
             num_angle_actions = 3 # should be atleast 3 (and uneven) if used
-            num_com_actions = self.num_messages + 1 # should be one more than the number of messages (one more than the message buffer size). 
             
             if not self.antenna_used: # the agents do not use the antenna - isotropic transmission
                 num_angle_actions = 1
-            if not self.com_used: # the agents do not communicate
-                num_com_actions = 1
-            num_deletion_actions = num_com_actions
-            if not self.deleting_used: # the agents do not delete by their own action
-                num_deletion_actions = 1
             
             # Here we combine the different actions into one single output - many actions that have to be 'decoded'
             # used later to retrieve the correct action index for each major action type
             
             self.different_discrete_actions = [num_velocity_actions, num_velocity_actions,
-                                               num_angle_actions, num_com_actions, num_deletion_actions]
+                                               num_angle_actions]
             
             self.action_mapping_dict = {i: list(comb) for i, comb in enumerate(itertools.product(*map(range, self.different_discrete_actions)))}
             
             self.action_spaces = {agent.name: spaces.Discrete(
-                num_velocity_actions**2 * num_angle_actions * num_com_actions * num_deletion_actions
+                num_velocity_actions**2 * num_angle_actions
             ) for agent in self.world.agents}
 
         self.transmission_radius_bases = self.calculate_transmission_radius(self.world.bases[0])
@@ -203,9 +188,6 @@ class Info_relay_env(ParallelEnv):
         self.recived_messages_agents = [] # keeps track of all messages recieved by agents this timestep - to give reward based in such behaviour
 
         self.episode_counter = 0 # checks how many times the environemnt has been reset. Used for continously changing the starting states
-
-        if not self.use_action_masking: # keeps track of illegal transmissions this timestep
-            self.illegal_message_sent = {agent.name: 0 for agent in self.world.agents}
 
 
     # these "world" functions could be included in their own class, Scenario, like in MPE -
@@ -324,26 +306,16 @@ class Info_relay_env(ParallelEnv):
             #base.state.p_pos = np_random.uniform(-self.world_size, self.world_size, world.dim_p)
             base.state.p_pos = base_positions[i]
             base.state.p_vel = np.zeros(world.dim_p)
-            # set up messages to be send by the bases
-            base.message_to_send = [1,0,0,0,[base.name]]
-            self.generate_new_base_message(base) # fixes base.message_to_send
 
             base.color_intensity = 0 # resets graphics so it does not look like it is sending
-            base.state.c = 0
 
-        if self.num_messages == 1:
-            # randomizing which base is sending each episode. 
-            if np.random.binomial(1, 0.5) == 1:
-                world.bases[1].silent = True # only one base sending
-                world.bases[0].generate_messages = False # the same message all the time
-                world.bases[0].silent = False 
-            else:
-                world.bases[0].silent = True 
-                world.bases[1].generate_messages = False 
-                world.bases[1].silent = False
-        else:
-            raise Exception("Only one message allowed, not more")
-
+        world.bases[0].state.c = 1
+        world.bases[1].state.c = 0
+        
+        world.bases[1].silent = True # only one base sending
+        world.bases[0].generate_messages = False # the same message all the time
+        world.bases[0].silent = False 
+            
 
         # Compute the midpoint of all bases
         #base_positions = np.array(positions)
@@ -361,12 +333,11 @@ class Info_relay_env(ParallelEnv):
             #agent.state.p_pos = np_random.uniform(-self.world_size*3, self.world_size*3, world.dim_p) # randomly assign starting location in a square
             agent.state.p_pos = agent_positions[i]
             agent.state.p_vel = np.zeros(world.dim_p) 
+            agent.state.c = 0 # ingen agent börjar med meddelande - alltså sänder ingen i början - kanske inte behöver denna - kör bara .message_buffer
 
-            agent.state.theta = 0.0 
+            agent.state.theta = 0.0 # TODO randomize 
             # initiate the message_buffer so that it always has the same size
-            agent.message_buffer = []
-            for i in range(agent.message_buffer_size):
-                agent.message_buffer.append([0,0,0,0,None]) 
+            agent.message_buffer = False
         
         #world.agents[0].state.p_pos = world.bases[0].state.p_pos + 0.99*self.transmission_radius/np.sqrt(2)*np.array([1,1])
         #world.agents[1].state.p_pos = world.bases[0].state.p_pos + 0.99*self.transmission_radius*np.array([0,1])
@@ -390,11 +361,8 @@ class Info_relay_env(ParallelEnv):
 
         observations = self.observe_all()
         
-        if not self.continuous_actions:
-            if self.use_action_masking:
-                infos = {agent.name: {"action_mask" : self.create_action_mask(agent)} for agent in self.world.agents}
-            else: # if inadmissible actions are allowed but penalized
-                infos = {agent.name: {"action_mask" : np.ones(len(self.action_mapping_dict), dtype=int)} for agent in self.world.agents}
+        if not self.continuous_actions: # Nu kör vi utan action masking - finns inga otillåtna actions när agenterna inte beslutar om sändning
+            infos = {agent.name: {"action_mask" : np.ones(len(self.action_mapping_dict), dtype=int)} for agent in self.world.agents}
         elif self.continuous_actions:
             infos = {agent.name: None for agent in self.world.agents}
         else:
@@ -402,26 +370,11 @@ class Info_relay_env(ParallelEnv):
 
         return observations, infos 
     
-    # TODO - kommer inte behövas nu när agenterna inte själva väljer att sända - ta bort alla self.use_action_masking
-    def create_action_mask(self, agent):
-        action_mask = np.ones(len(self.action_mapping_dict), dtype=int) # the amount of possible actions
-        empty_indices = [] # the indices corresponding to an empty message buffer slot (+1 to equal the action that would correspond to sending that message)
-        for i, message in enumerate(agent.message_buffer):
-            if message[0] == 0: # no message in this slot --> can't send this message
-                empty_indices.append(i+1)
-            
-            non_allowed_actions = [key for key, value in self.action_mapping_dict.items() if value[-1] in empty_indices or value[-2] in empty_indices]
-            action_mask[non_allowed_actions] = 0
-        
-        return action_mask
-    
 
     #sets the action in the case where all actions are discrete
     # OBS: the self.a_max variable can be changed to an agent-specific value to keep track of 
     def set_discrete_action(self, action, agent):
         agent.action.u = np.zeros(3)
-        agent.action.c = 0
-        agent.action.d = 0
         
         # here action is a number between 0 and 143 (the number of combinations of all actions) - translate it into the different subactions
         # the for loop below ensures unique mapping between action number and a set of subactions 
@@ -438,10 +391,6 @@ class Info_relay_env(ParallelEnv):
             if actions[2] == 2:
                 agent.action.u[2] = -self.omega_max
 
-        # TODO - dessa ska försvinna från hela koden då agenterna inte väljer att sända längre
-        agent.action.c = actions[3]
-        agent.action.d = actions[4]
-
 
     # sets action when all outputs are continuous
     def set_continuous_action(self, action, agent):
@@ -451,15 +400,12 @@ class Info_relay_env(ParallelEnv):
             buffer_size = agent.message_buffer_size + 1
 
             agent.action.c = np.argmax(action[3 : 3 + buffer_size])  
-            agent.action.d = np.argmax(action[3 + buffer_size : 3 + 2 * buffer_size]) # OBS some sort of softmax here??
 
         def set_com_action_one_output(action, agent):
             agent.action.c = round(action[3] * agent.message_buffer_size) # translates to integer
-            agent.action.d = round(action[4] * agent.message_buffer_size)
 
         agent.action.u = np.zeros(3)
         agent.action.c = 0
-        agent.action.d = 0
 
         # 2x-1 transforms the input of [0,1] to [-1,1] (the NN outputs a number \in [0,1])
         agent.action.u[0] = (2*action[0]-1)*self.a_max # x velocity (or acc)
@@ -471,6 +417,7 @@ class Info_relay_env(ParallelEnv):
             set_com_action_one_hot_vector(action, agent)
         else:
             set_com_action_one_output(action, agent)
+
 
     def set_action(self, action, agent):
         if self.continuous_actions:
@@ -486,17 +433,11 @@ class Info_relay_env(ParallelEnv):
         for agent in self.world.agents: 
             action = actions.get(agent.name, np.zeros(5)) # get the action for each agent
             self.set_action(action, agent)
-            if agent.message_buffer[0][-1] == None:
-                agent.action.c = 0 # OBS - endast när man testar # TODO
+
     
         #print("step", self.timestep)
         self.world.step() # the world controls the motion of the agents - (also controls communication ?)
         #print("world step done")
-
-        # TODO - kommer inte spela någon roll längre eftersom agenterna inte beslutar att sända
-        if not self.use_action_masking: # keeps track of illegal transmissions this timestep
-            for agent in self.world.agents:
-                self.illegal_message_sent[agent.name] = 0 
 
         # run all comunications in the env
         self.communication_kernel()
@@ -526,10 +467,7 @@ class Info_relay_env(ParallelEnv):
         if self.render_mode == "human":
             self.render()
 
-        if self.use_action_masking:
-            infos = {agent.name: {"action_mask" : self.create_action_mask(agent)} for agent in self.world.agents}
-        else:
-            infos = {agent.name: {"action_mask" : np.ones(len(self.action_mapping_dict), dtype=int)} for agent in self.world.agents}
+        infos = {agent.name: {"action_mask" : np.ones(len(self.action_mapping_dict), dtype=int)} for agent in self.world.agents}
 
         return observations, rewards, terminations, truncations, infos
     
@@ -570,16 +508,9 @@ class Info_relay_env(ParallelEnv):
             penalties += abs(agent.action.u[2]**2*agent.radar_cost)
 
 
-        # Communication costs 
+        # Communication costs - TODO någon mening att ha kvar kostnad om agenten inte själb beslutar om att sända?
         if not agent.action.c == 0: # sending
             penalties += abs(agent.transmission_cost)
-        # deleting cost
-        if not agent.action.d == 0:
-            penalties += abs(agent.transmission_cost)
-
-        # penalties for inadmissible actions if action masking is not used
-        if not self.use_action_masking:
-            penalties += self.illegal_message_sent[agent.name] * 100
 
         return penalties
     
@@ -638,239 +569,64 @@ class Info_relay_env(ParallelEnv):
                 return entity
         
         return None ## The entity does not exist
-    
-    # TODO - ta bort message buffers - ersätt med endast en boolean
-    def check_message_buffer(self, agent, number):
-        """Returns a list of the indices in the message buffer that correspond to the given number.
-        0 for empty and 1 for non-empty"""
-        indices = []
-        for index, message in enumerate(agent.message_buffer):
-            if message[0] == number: # the first index of each message shows if it exists or not
-                indices.append(index) 
-        return indices
-    
-    def check_message_buffer_ids(self, agent):
-        """Returns a list of message ids currently in the buffer and what index they are stored in in the buffer"""
-        indices = []
-        for index, message in enumerate(agent.message_buffer):
-            if message[0] == 1: # if the message exists
-                indices.append([index, message[1]]) 
-        return indices
-    
-    
-    def generate_new_base_message(self, base):
-        """
-        Generates a new message for a particular base
-        """
-        base.message_to_send[1] = self.world.message_ID_counter # update message ID
-        self.world.message_ID_counter += 1 # update the global message ID counter
-
-        # randomly choosing the destination - excludes itself from the list of possible choices
-        possible_destinations = [i for i in range(self.num_bases) if i != base.get_index()] # OBS if num_bases will change during simulation - double check
-        base.message_to_send[2] = int(np.random.choice(possible_destinations)) 
-
-
-    def base_com(self):
-        """
-        Returns all messages from all bases.
-        Called from the communication kernel
-        """
-        messages_bases = []
-        
-        for base in self.world.bases:
-            if not base.silent:
-                # toss a coin to send message, the prob of 0.5 can be changed
-                if np.random.binomial(1, 0.5) == 1: 
-                    messages_bases.append(deepcopy(base.message_to_send)) # add copy, avoid referece errors later
-                    #messages_bases.append(base.message_to_send) # no need for a copy here?
-                    base.state.c = 1
-                else:
-                    base.state.c = 0 # no message sent 
-
-                if base.generate_messages:
-                    #update to new message:
-                    if np.random.binomial(1, 0.1) == 1:
-                        # update ID - world variable to keep track of all IDs
-                        if self.num_messages == 4: # Fixing this quickly to get some results in a specific scenario
-                            base.message_to_send[1] = (base.message_to_send[1]+2) % 4 # this esures base 0 has ID 0 and 2, base 1 has ID 1 and 3
-                        else:
-                            self.generate_new_base_message(base)
-                    else:
-                        pass # no update of message 
-
-        return messages_bases 
-    
-    ## OBS need to be rewritten with one-hot-vector or not
-    def delete_message_from_buffer(self, agent):
-        """
-        Checks if a message is to be deleted and removes it by setting all elements to 0
-        """
-        if agent.action.d == 0: 
-            pass # no message to be deleted
-        elif not self.use_action_masking and agent.action.d-1 in self.check_message_buffer(agent, 0): # OBS!! only for testing - passes if trying to delete non existing message
-            pass
-        else:
-            #agent.message_buffer[agent.action.d - 1] = [0,0,0,0,[]]
-            # more memory efficient way of deleting messages - not a new list: 
-            agent.message_buffer[agent.action.d - 1].clear()  # Removes elements in-place
-            agent.message_buffer[agent.action.d - 1].extend([0,0,0,0,[]])  # Avoids reallocating memory
 
     
-    def update_message_time(self, agent):
-        """
-        Updates the time tracker for each message in each agent's message buffer: +1 per time step
-        """
-        message_indices = self.check_message_buffer(agent, 1) 
-        for index in message_indices:
-            agent.message_buffer[index][3] += 1
-
     def communication_kernel(self):
-        """
-        Handels all communications in the env. An implementation of the communication kernel from the pdf
-        Possible to run this from the observe function. 
-        Messages are observed? - or only passivly passed to the agents?
-        Here: passively passed to the agents by the env - i think reasonable
-        Differs slighly from the description in the pdf but not much
-        """
+        """ Runs the communication kernel when the message buffer is just one boolean contaning one message without any meta data """
+        # om bas-looparna tas bort:
+        #base1 = self.world.bases[0]
+        #base2 = self.world.bases[1]
+        # decide if the base is sending
 
-        #OBS: message buffer: each row is a message, contains five attributes
-        # (0,0,0,0,0) == (exist(int),ID(int),dest(int),num_steps(int),history(list[Entities]))
+        self.check_base_com()
 
-        messages_bases = self.base_com() # M_ba
-        messages_agents = [] # M_ag
         for agent in self.world.agents:
-            agent.state.c = 0
-            if agent.action.c == 0:
-                pass # nothing is transmitted 
-            elif not self.use_action_masking and agent.action.c-1 in self.check_message_buffer(agent, 0): # the transmitted message does not exist
-                self.illegal_message_sent[agent.name] += 1
-                pass # hinders tranmission in the case where the message does not exist and no action masking used
-            else:
-                # add the message from the buffer to the transmit list that correspond to the action
-                messages_agents.append(deepcopy(agent.message_buffer[agent.action.c - 1])) 
-                #print(f'{agent} message: {agent.message_buffer[agent.action.c - 1]}')
+            if agent.message_buffer: # if the agent already has the message
+                continue
 
-                agent.state.c = 1
+            recieved_message = False
 
+            for base in self.world.bases: # really dont need to loop through the bases as only one base is sending now - only check the first base
+                if base.state.c == 1: # if sending
+                    SNR = self.calculate_SNR(agent, base)
+                    if self.check_signal_detection(SNR):
+                        agent.message_buffer = True
+                        agent.state.c = 1 # not it will send continously 
+                        recieved_message = True
 
-            # deletes message from message buffer
-            if self.deleting_used:
-                self.delete_message_from_buffer(agent)
+            if recieved_message: # do not check agents if message recieved from base
+                continue
 
-        messages = messages_agents + messages_bases
-        
-        #print("Messages:", messages)
-        self.recived_messages_agents.clear() # clear for each if changed to dict of lists
-        for agent in self.world.agents: # step 3 from the com kernel in the pdf
-            #print("\n", agent.name)
-            pre_buffer = []
-            # check each transmitted messaged if it reached this agent and add them to the pre-buffer
-            for _, message in enumerate(messages):
-                transmitter = self.get_entity_by_name(message[4][-1]) # the latest entity to transmit
+            for other in self.world.agents: # the agents are always transmitting
+                if other.name == agent.name:
+                    continue
+                if other.message_buffer:
+                    SNR = self.calculate_SNR(agent, other)
+                    if self.check_signal_detection(SNR):
+                        agent.message_buffer = True
+                        agent.state.c = 1
+                        continue
 
-                # skips message if the agent who is listening sent it
-                if transmitter.name == agent.name: 
+        for base in self.world.bases: # maybe remove loop - only look at the 2nd base
+            for agent in self.world.agents:
+                SNR = self.calculate_SNR(base, agent)
+                if self.check_signal_detection(SNR):
+                    base.message_buffer = True # the game should end once this condition is met
+                    continue
+            for other in self.world.bases: # maybe remove loop - only look at the first base
+                if other.name == base.name:
+                    continue
+                SNR = self.calculate_SNR(base, other)
+                if self.check_signal_detection(SNR):
+                    base.message_buffer = True
                     continue
 
-                SNR = self.calculate_SNR(agent, transmitter)
-                if self.check_signal_detection(SNR):
-                    pre_buffer.append(deepcopy(message)) # need to make copy as to not change later by reference - slower execution
-                    pre_buffer[-1].append(SNR) # adding SNR to message to sort later - removing when adding to the buffer
-                else:
-                    pass # no message recieved - should something be done here?
-
-            # sort the pre-buffer in descending SNR - OBS fix and evaluate
-            pre_buffer.sort(key=lambda message: message[-1], reverse=True)
-            
-            # remove SNR from the pre buffer
-            for msg in pre_buffer:
-                msg.pop()
-
-            if self.num_messages == 1: # the one_way_tranmission scenarios where only one message if used. OBS remove once the more general 
-                # update the buffer according to the rules from the pdf - only update if there is space in buffer
-                available_indices = self.check_message_buffer(agent, 0)
-
-                if len(available_indices) > len(pre_buffer): # there are enough places in the buffer for all messages
-                    sampled_indices = random.sample(available_indices, len(pre_buffer)) # take out as many indices as there are messages
-                else: # there are not enough places in the buffer for all messages
-                    sampled_indices = available_indices # here we take out as many messages from the pre_buffer as there are slot in the buffert
-
-                for i, index in enumerate(sampled_indices): 
-                    pre_buffer[i][4].append(agent.name) # adding the agent to the history
-                    # adding the message to the buffer - adding copy as not to have weird reference bugs later
-                    agent.message_buffer[index] = deepcopy(pre_buffer[i])
-
-                    self.recived_messages_agents.append(deepcopy(pre_buffer[i])) # Obs: could be changed to a dict
-
-                # Going trough and replacing an already existing message if it has existed for a shorter time - better relay chain (added after deleting was removed)
-                for index, message in enumerate(agent.message_buffer):
-                    for incoming_msg in pre_buffer:
-                        if message[3] > incoming_msg[3]: 
-                            temp_msg = deepcopy(incoming_msg)
-                            temp_msg[4].append(agent.name)
-                            agent.message_buffer[index] = temp_msg
-                            self.recived_messages_agents.append(deepcopy(temp_msg))
-                            continue # skips the loop if one message has been recieved - only reward for one of the messages
-
-            else: # all other scenarios (more than one message)
-                for i, in_msg in enumerate(pre_buffer):
-                    message_ids = self.check_message_buffer_ids(agent)
-                    if in_msg[1] not in [id for _, id in message_ids]: # extract only the ids, not indices in the buffer where those ids are stored
-                        available_indices = self.check_message_buffer(agent, 0) # non-occupied buffer slots
-                        index = random.sample(available_indices, 1)[0]
-
-
-                        pre_buffer[i][4].append(agent.name) # adding the agent to the history
-                        # adding the message to the buffer - adding copy as not to have weird reference bugs later
-                        agent.message_buffer[index] = deepcopy(pre_buffer[i])
-
-                        self.recived_messages_agents.append(deepcopy(pre_buffer[i])) # Obs: could be changed to a dict
-                    
-                    else: # if the message already exists in the buffer
-                        # find the right spot in the buffer corresponding to the message id - then replace if msg[3] is lower
-                        message_ids = self.check_message_buffer_ids(agent)
-
-                        buffer_index = next((idx for idx, id in message_ids if id == in_msg[1]), None) # get the index in the buffer where the a message with the same id is stored 
-
-                        if agent.message_buffer[buffer_index][3] > in_msg[3]:
-                            temp_msg = deepcopy(in_msg)
-                            temp_msg[4].append(agent.name)
-                            agent.message_buffer[buffer_index] = temp_msg
-                            self.recived_messages_agents.append(deepcopy(temp_msg))
-                            # OBS still need to make sure that each message is only replaced once (max) each timestep
-
-
-            # update the time of all non-empty message_buffer slots
-            self.update_message_time(agent)
-
-            #print(f"{agent.name}'s message_buffer: {agent.message_buffer}")
-
-
-        self.recived_messages_bases.clear() # reset this for each timestep, used to keep track of messages recieved by bases now
-        # do the same thing but for bases
-        for base in self.world.bases: # step 4 from pdf
-            # check each transmitted messaged if it reached this base and then add it to the (inf big) message buffer
-            # Only adds messages that has ben sent by agents - not other bases
-            for _, message in enumerate(messages_agents):
-                if self.get_entity_by_name(message[4][0]).name == base.name: # OBS fixa och dubbelkolla - räcker med message[4][0]?
-                    continue # skips this iteration if the sent message started from the same base
-
-                transmitter = self.get_entity_by_name(message[4][-1]) # the latest entity to transmit
-
-                SNR = self.calculate_SNR(base, transmitter)
-                if self.check_signal_detection(SNR):
-                    base.message_buffer.append(deepcopy(message))
-                    # update history
-                    base.message_buffer[-1][4].append(base.name)
-                    # update the time here as the time for delivered messages will stop ticking
-                    base.message_buffer[-1][3] += 1
-
-                    self.recived_messages_bases.append(base.message_buffer[-1]) # OBS no copy <-- should not be changed 
-                else:
-                    pass # no message recieved - should something be done here?
-
-            #print(f"{base.name}'s message_buffer: {base.message_buffer}")
-
+    
+    def check_base_com(self):
+        """ Checks if the base should send this timestep """
+        if not self.base_always_transmitting:
+            self.world.bases[0].state.c = np.random.binomial(1, 0.2) # singlar slant om den ska sända eller ej
+ 
 
     def calculate_transmission_radius(self, entity):
         """
@@ -934,7 +690,7 @@ class Info_relay_env(ParallelEnv):
         
     
     def full_relative_observation(self, agent):
-        # Observing relative positions of all bases, agents, and emitters
+        # Observing relative positions of all bases and agents (and the enemy)
         base_pos = [base.state.p_pos - agent.state.p_pos for base in self.world.bases]
         other_pos = [other.state.p_pos - agent.state.p_pos for other in self.world.agents if other is not agent]
         if self.observe_self:
@@ -942,7 +698,7 @@ class Info_relay_env(ParallelEnv):
         else:
             physical_observation = np.concatenate(base_pos + other_pos)
 
-        if self.antenna_used:
+        if self.antenna_used: # TODO - ändra till relativa antennorienteringar för andra agenter
             own_antenna_direction = agent.state.theta
             antenna_directions = [other.state.theta for other in self.world.agents if other is not agent]
             all_antenna_directions = [own_antenna_direction] + antenna_directions
@@ -950,30 +706,12 @@ class Info_relay_env(ParallelEnv):
 
 
         communication_observation = []
-        own_com_obs = []
+        communication_observation.append(agent.message_buffer)  # its own observation is seperate - so the policy singels out the correct input corresponding to itself
     
         for other in self.world.agents:  
             if other is not agent: 
-                for msg in other.message_buffer: 
-                    msg_exists = msg[0] 
-                    msg_id = msg[1] 
-                    destination = msg[2]  
-                    timestamp = msg[3]
-                    communication_observation.extend([msg_exists, msg_id, destination, timestamp])
-            else: # its own observation is seperate - so the policy singels out the correct input corresponding to itself
-                for msg in other.message_buffer: 
-                    msg_exists = msg[0] 
-                    msg_id = msg[1] 
-                    destination = msg[2]  
-                    timestamp = msg[3]
-                    own_com_obs.extend([msg_exists, msg_id, destination, timestamp])
-        
+                communication_observation.append(other.message_buffer)
 
-        # Convert to numpy array
-        communication_observation = np.array(communication_observation, dtype=np.float32)
-        own_com_obs = np.array(own_com_obs, dtype=np.float32)
-
-        communication_observation = np.concatenate([own_com_obs, communication_observation])
     
         # Return one flat observation array
         return np.concatenate([physical_observation, communication_observation])
@@ -1149,7 +887,7 @@ class Info_relay_env(ParallelEnv):
                 elif entity.state.c == None:
                     word = "___"
                 else: 
-                    word = "msg" + str(entity.message_buffer[entity.action.c-1][1]) # OBS dubbelcheck
+                    word = "msg" 
                 #else:
                 #    word = (
                 #        "[" + ",".join([f"{comm:.2f}" for comm in entity.state.c]) + "]"
