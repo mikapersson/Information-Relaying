@@ -39,12 +39,19 @@ alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 # - en klass per scenario. Detta liknar det som är byggt i pettingzoo MPE environment. 
 # likt hur det är kodat i mapparna under https://github.com/Farama-Foundation/PettingZoo/tree/master/pettingzoo/mpe 
 
-# TODO - lägg till fiende och störsändningsfunktionalitet. Fiendens state (position) ska uppdateras i info_relay_classes likt agenterna.
+# TODO(SAMSAM) - lägg till fiende och störsändningsfunktionalitet. Fiendens state (position) ska uppdateras i info_relay_classes likt agenterna.
+# TODO(SAMSAM?) - baserna börjar endast på x-axeln. Samma bas sänder varje spel - börjar alltid i origo
 
-# TODO - baserna börjar endast på x-axeln. Samma bas sänder varje spel - börjar alltid i origo
+# TODO - Adam har funderingar kring att "få en känsla kring valet av parametrar och slumpning av begynnelsevärde", där ingår att han vill
+# implementera en baseline.
 
 # TODO - dubbelkolla belöningsfunktionen
 
+# TODO - Enable gpu träning ? Kanske inte behövs
+
+# TODO (optional) - Låt agenter dela med avsikt till andra agenter. 
+
+# TODO (optional & low prio) - Beslut om position snarare än färdriktning
 
 class Info_relay_env(ParallelEnv):
     metadata = {
@@ -52,7 +59,7 @@ class Info_relay_env(ParallelEnv):
         "render_fps": 1
     }
 
-    def __init__(self, num_agents = 1, num_bases = 2, num_emitters = 0, world_size = 1,
+    def __init__(self, num_agents = 1, num_bases = 2, num_emitters = 1, world_size = 1,
                  a_max = 1.0, omega_max = np.pi/4, step_size = 0.05, max_cycles = 25, 
                  continuous_actions = True, one_hot_vector = False, antenna_used = True, 
                  com_used = True, num_messages = 1, base_always_transmitting = True, 
@@ -213,6 +220,16 @@ class Info_relay_env(ParallelEnv):
 
             #agent.transmit_power = 1 # set to reasonable levels
 
+        world.emitters = [Emitter() for _ in range(num_emitters)]
+        for i, emitter in enumerate(world.emitters):
+            emitter.name = f"jammer_{i}"
+            emitter.size = 0.025/2
+            emitter.max_speed = 1.0
+            agent.u_range = [self.a_max, self.omega_max] # maximum control range = a_max, omega_max
+            emitter.internal_noise = 1
+            emitter.color = np.array([1.0, 0, 0])            
+
+
         world.bases = [Base() for _ in range(num_bases)]
         for i, base in enumerate(world.bases):
             base.name = f"base_{i}"
@@ -223,11 +240,6 @@ class Info_relay_env(ParallelEnv):
         #world.bases[1].silent = True # first scenario is one way communication
         #world.bases[0].generate_messages = False # the same message all the time
 
-        world.emitters = []
-        #world.emitters = [Emitter() for _ in range(num_emitters)]
-        for i, emitter in enumerate(world.emitters):
-            emitter.name = f"emitter_{i}"
-            emitter.color = np.array([0.35, 0.85, 0.35])
 
         return world
 
@@ -265,7 +277,7 @@ class Info_relay_env(ParallelEnv):
     #     return positions   
     
     
-    def generate_agent_positions(self, np_random, base_positions, radius):
+    def generate_entity_positions(self, np_random, base_positions, radius, n_entities):
         """
         Generate positions for agents inside a circular disk with a certain radius. 
         The center of the disk is the the middlepoint of the bases.  
@@ -273,7 +285,7 @@ class Info_relay_env(ParallelEnv):
         positions = []
     
         self.center = np.mean(base_positions, axis=0)  # Midpoint of bases
-        for i in range(self.n_agents):
+        for i in range(n_entities):
             radius_agent = np_random.uniform(0, radius)  # Random radius
             angle = np_random.uniform(0, 2 * np.pi)  # Random angle
             offset = np.array([radius_agent * np.cos(angle), radius_agent * np.sin(angle)])  # Convert to Cartesian
@@ -308,6 +320,8 @@ class Info_relay_env(ParallelEnv):
 
             base.color_intensity = 0 # resets graphics so it does not look like it is sending
 
+        world.R = np.linalg.norm(world.bases[0].state.p_pos - world.bases[1].state.p_pos)
+
         world.bases[0].state.c = 1
         world.bases[1].state.c = 0
         
@@ -320,12 +334,15 @@ class Info_relay_env(ParallelEnv):
         #base_positions = np.array(positions)
         self.center = np.mean(base_positions, axis=0)  # Midpoint of bases
 
+        # I feel lie the center point should be contained in world but idk
+        world.center = self.center
+
         #radius = self.radius * min(self.episode_counter / 2500, 1) # increases from 0 to 1 
         #radius = self.radius*2
         radius = self.radius*1.5
         #radius = self.radius
 
-        agent_positions = self.generate_agent_positions(np_random, base_positions, radius)
+        agent_positions = self.generate_entity_positions(np_random, base_positions, radius, self.n_agents)
 
         for i, agent in enumerate(world.agents):
             #agent.state.p_pos = np.array(world.bases[0].state.p_pos) # all starts at the first base
@@ -337,9 +354,16 @@ class Info_relay_env(ParallelEnv):
             agent.state.theta = np.random.uniform(0,2*np.pi)
             # initiate the message_buffer so that it always has the same size
             agent.message_buffer = False
-        
-        #world.agents[0].state.p_pos = world.bases[0].state.p_pos + 0.99*self.transmission_radius/np.sqrt(2)*np.array([1,1])
-        #world.agents[1].state.p_pos = world.bases[0].state.p_pos + 0.99*self.transmission_radius*np.array([0,1])
+
+        emitter_positions = self.generate_entity_positions(np_random, base_positions, radius, self.num_emitters)
+
+        for i, emitter in enumerate(world.emitters):
+            #agent.state.p_pos = np.array(world.bases[0].state.p_pos) # all starts at the first base
+            #agent.state.p_pos = np_random.uniform(-self.world_size*3, self.world_size*3, world.dim_p) # randomly assign starting location in a square
+            emitter.state.p_pos = emitter_positions[i]
+            emitter.state.p_vel = np.zeros(world.dim_p) 
+
+            emitter.state.theta = 0.0 
 
     def reset(self, seed=None, options=None): # options is dictionary
         
@@ -549,6 +573,16 @@ class Info_relay_env(ParallelEnv):
         """
         # TODO - update to new reward
         return global_reward - self.calculate_action_penalties(agent)*10 #+ reward_help/10
+    
+    def get_entity_by_name(self, name):
+        """
+        Returns the entity instance correpsonding to a name
+        """
+        for entity in self.world.agents + self.world.bases + self.world.emitters:
+            if entity.name == name:
+                return entity
+        
+        return None ## The entity does not exist
 
     
     def communication_kernel(self):
@@ -568,7 +602,7 @@ class Info_relay_env(ParallelEnv):
 
             for base in self.world.bases: # really dont need to loop through the bases as only one base is sending now - only check the first base
                 if base.state.c == 1: # if sending
-                    SNR = self.calculate_SNR(agent, base)
+                    SNR = self.calculate_SNR(agent, base, self.world.emitters)
                     if self.check_signal_detection(SNR):
                         agent.message_buffer = True
                         agent.state.c = 1 # not it will send continously 
@@ -581,7 +615,7 @@ class Info_relay_env(ParallelEnv):
                 if other.name == agent.name:
                     continue
                 if other.message_buffer:
-                    SNR = self.calculate_SNR(agent, other)
+                    SNR = self.calculate_SNR(agent, other, self.world.emitters)
                     if self.check_signal_detection(SNR):
                         agent.message_buffer = True
                         agent.state.c = 1
@@ -589,14 +623,14 @@ class Info_relay_env(ParallelEnv):
 
         for base in self.world.bases: # maybe remove loop - only look at the 2nd base
             for agent in self.world.agents:
-                SNR = self.calculate_SNR(base, agent)
+                SNR = self.calculate_SNR(base, agent, self.world.emitters)
                 if self.check_signal_detection(SNR):
                     base.message_buffer = True # the game should end once this condition is met
                     continue
             for other in self.world.bases: # maybe remove loop - only look at the first base
                 if other.name == base.name:
                     continue
-                SNR = self.calculate_SNR(base, other)
+                SNR = self.calculate_SNR(base, other, self.world.emitters)
                 if self.check_signal_detection(SNR):
                     base.message_buffer = True
                     continue
@@ -622,7 +656,7 @@ class Info_relay_env(ParallelEnv):
             return False # signal not detected
 
 
-    def calculate_SNR(self, reciever, transmitter):
+    def calculate_SNR(self, reciever, transmitter, jammers):
         """
         Calculates the SNR between transmitter and reciever. It is assumed that all entities can listen uniformly in all directions.
         All bases send uniformly in all directions. All agents send in the direction of its antenna
@@ -660,13 +694,25 @@ class Info_relay_env(ParallelEnv):
 
             #print(f"reciever {reciever.name}, transmitter {transmitter.name}, phi_r/phi_t: {phi_r}/{phi_t} SNR: ", SNR)
 
+            for jammer in jammers:
+                #Start jamming
+                rel_pos_j = reciever.state.p_pos - jammer.state.p_pos
+                SNR = SNR / (1 + 3 * ((np.linalg.norm(rel_pos_j))**(-2)))
+
             return SNR
         
         else:
             # SNR calculation in the isotropic sending and receiving scenarios 
             rel_pos = transmitter.state.p_pos - reciever.state.p_pos
+            
+            transmitted_power = transmitter.transmit_power/(np.linalg.norm(rel_pos) * reciever.internal_noise)**2
 
-            return transmitter.transmit_power/(np.linalg.norm(rel_pos) * reciever.internal_noise)**2
+            for jammer in jammers:
+                #Start jamming
+                rel_pos_j = reciever.state.p_pos - jammer.state.p_pos
+                transmitted_power = transmitted_power / (1 + 3 * ((np.linalg.norm(rel_pos_j))**(-2)))
+
+            return transmitted_power
         
     
     def full_relative_observation(self, agent):

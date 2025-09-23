@@ -126,7 +126,16 @@ class Emitter(Entity): # always transmitting - taking no actions (atleast yet)
         super().__init__()
         self.state.c = True # always communicating
         self.blind = True # the emitters do not listen
+        self.movable = True
+        self.action = DroneAction()
+        self.generate_action()
 
+    def generate_action(self):
+        while self.action.u is None or np.linalg.norm(self.action.u) == 0:
+            self.action.u = np.array([float(np.random.randint(-1,2)), float(np.random.randint(-1,2))])
+        else:
+            # Reverse direction
+            self.action.u = self.action.u*-1
     def __str__(self):
         return super().__str__()
     
@@ -182,6 +191,9 @@ class World:  # multi-agent world
         self.agents = [] # OBS change to drones later?? or keep as agents?
         self.bases = []
         self.emitters = []
+        self.center = None
+        self.R = None # Distance between bases
+        self.max_allowed_emitter_distance = 0.75
         # communication channel dimensionality (we only have destination??)
         self.dim_c = 0
         # position dimensionality
@@ -228,14 +240,24 @@ class World:  # multi-agent world
         for agent in self.scripted_agents:
             agent.action = agent.action_callback(agent, self)
 
+        for emitter in self.emitters:
+            dist = np.linalg.norm(emitter.state.p_pos - self.center)
+            normalized_dist = dist / self.R  # Normalize relative to base distance
+            if normalized_dist > self.max_allowed_emitter_distance:
+                emitter.generate_action()
+
         for i, agent in enumerate(self.agents):
             # used to check correct init (uniqe) id's for all agents
             #print(f"Agent {agent.name} p_pos id: {id(agent.state.c)}")
+            self.apply_process_model_2_drones(agent, agent.action.u[:2], agent.action.u[2])
 
-            self.apply_process_model_2_drones(agent)
+        for emitter in self.emitters:
+            #velocity = np.array([1.0, 1.0])
+            theta = 0.
 
-        
-            
+            self.apply_process_model_2_drones(emitter, emitter.action.u[:2], theta)
+
+    # NOT USED?
     # applies the process model from the pdf
     def apply_process_model(self):
         for i, entity in enumerate(self.entities):
@@ -268,7 +290,7 @@ class World:  # multi-agent world
 
     # TODO - uppdatera så att fiendens state också uppdateras varje tidsteg - här eller egen funktion.
     # the simpler model without acceleration - here action is setting the new velocity (and omega)
-    def apply_process_model_2_drones(self, agent):
+    def apply_process_model_2_drones(self, agent, velocity, theta):
         """
         Applies the physical transition kernel. 
         Steps all agents' position and orientation one time step.
@@ -278,13 +300,13 @@ class World:  # multi-agent world
         
         # assumes velocity is set immediatly - realistic?
         #print(agent.action.u)
-        agent.state.p_vel = np.array(agent.action.u[:2]) # u[:2] contains velocity in x, y directions
+        agent.state.p_vel = velocity # u[:2] contains velocity in x, y directions
 
         # stochastic control noise (gaussian)
         noise_scale = (np.array([self.sigma_x, self.sigma_y]) * agent.state.p_vel * self.dt)**2
         agent.state.p_vel += np.random.normal(loc = 0, scale = noise_scale, size = (2,)) 
         
-        theta_action_dt = agent.action.u[2] #* self.dt testing without the dt param - for discrete case 
+        theta_action_dt = theta #* self.dt testing without the dt param - for discrete case 
         theta_noise = np.random.normal(loc = 0, scale = (self.sigma_omgea*theta_action_dt)**2)
         agent.state.theta += theta_action_dt + theta_noise
         #ensures that theta is bounded in [0,2pi)
