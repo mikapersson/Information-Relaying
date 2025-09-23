@@ -40,17 +40,18 @@ alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 # likt hur det är kodat i mapparna under https://github.com/Farama-Foundation/PettingZoo/tree/master/pettingzoo/mpe 
 
 # TODO(SAMSAM) - lägg till fiende och störsändningsfunktionalitet. Fiendens state (position) ska uppdateras i info_relay_classes likt agenterna.
+# TODO(SAMSAM?) - baserna börjar endast på x-axeln. Samma bas sänder varje spel - börjar alltid i origo
 
-# TODO - Enable gpu träning
+# TODO - Adam har funderingar kring att "få en känsla kring valet av parametrar och slumpning av begynnelsevärde", där ingår att han vill
+# implementera en baseline.
+
+# TODO - dubbelkolla belöningsfunktionen
+
+# TODO - Enable gpu träning ? Kanske inte behövs
 
 # TODO (optional) - Låt agenter dela med avsikt till andra agenter. 
 
 # TODO (optional & low prio) - Beslut om position snarare än färdriktning
-
-# TODO - baserna börjar endast på x-axeln. Samma bas sänder varje spel - börjar alltid i origo
-
-# TODO - dubbelkolla belöningsfunktionen
-
 
 class Info_relay_env(ParallelEnv):
     metadata = {
@@ -189,6 +190,7 @@ class Info_relay_env(ParallelEnv):
 
         self.transmission_radius_bases = self.calculate_transmission_radius(self.world.bases[0])
         self.transmission_radius_drones = self.calculate_transmission_radius(self.world.agents[0])
+        self.transmission_radius_emitters = self.calculate_transmission_radius(self.world.emitters[0])
 
         self.recived_messages_bases = [] # an attribute that keeps track of all messages recieved by bases THIS timestep    
         self.recived_messages_agents = [] # keeps track of all messages recieved by agents this timestep - to give reward based in such behaviour
@@ -308,6 +310,7 @@ class Info_relay_env(ParallelEnv):
         self.radius = self.calculate_transmission_radius(self.world.bases[0]) * (self.n_agents + 1)/2 
         if self.num_bases == 3:
             self.radius = self.calculate_transmission_radius(self.world.bases[0]) * (2 + 1)/2 # always the same distance as 2 agents - does not work otherwise
+        world.radius = self.radius
 
         #min_base_radius = min(max(1/self.n_agents, self.episode_counter / 5000), 0.9) 
         #min_base_radius = 1/self.n_agents
@@ -332,6 +335,9 @@ class Info_relay_env(ParallelEnv):
         # Compute the midpoint of all bases
         #base_positions = np.array(positions)
         self.center = np.mean(base_positions, axis=0)  # Midpoint of bases
+
+        # I feel lie the center point should be contained in world but idk
+        world.center = self.center
 
         #radius = self.radius * min(self.episode_counter / 2500, 1) # increases from 0 to 1 
         #radius = self.radius*2
@@ -583,7 +589,7 @@ class Info_relay_env(ParallelEnv):
         """
         Returns the entity instance correpsonding to a name
         """
-        for entity in self.world.agents + self.world.bases:
+        for entity in self.world.agents + self.world.bases + self.world.emitters:
             if entity.name == name:
                 return entity
         
@@ -869,6 +875,12 @@ class Info_relay_env(ParallelEnv):
             assert (
                 0 < x < self.width and 0 < y < self.height
             ), f"Coordinates {(x, y)} are out of bounds."
+
+            if isinstance(entity, Emitter): # transmit radius for bases
+                scaled_transmission_radius_emitters = (self.transmission_radius_emitters / cam_range) * (self.width // 2) * 0.9
+                pygame.draw.circle(
+                    self.screen, (0, 0, 0), (x, y), scaled_transmission_radius_emitters, 1
+                )  # signal transmit radius
 
             # Display entity name next to it
             name_x_pos = x + 10  # Offset slightly to the right
