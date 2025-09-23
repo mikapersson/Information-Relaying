@@ -224,7 +224,7 @@ class Info_relay_env(ParallelEnv):
 
         world.emitters = [Emitter() for _ in range(num_emitters)]
         for i, emitter in enumerate(world.emitters):
-            emitter.name = f"emitter_{i}"
+            emitter.name = f"jammer_{i}"
             emitter.size = 0.025/2
             emitter.max_speed = 1.0
             agent.u_range = [self.a_max, self.omega_max] # maximum control range = a_max, omega_max
@@ -310,7 +310,6 @@ class Info_relay_env(ParallelEnv):
         self.radius = self.calculate_transmission_radius(self.world.bases[0]) * (self.n_agents + 1)/2 
         if self.num_bases == 3:
             self.radius = self.calculate_transmission_radius(self.world.bases[0]) * (2 + 1)/2 # always the same distance as 2 agents - does not work otherwise
-        world.radius = self.radius
 
         #min_base_radius = min(max(1/self.n_agents, self.episode_counter / 5000), 0.9) 
         #min_base_radius = 1/self.n_agents
@@ -323,6 +322,8 @@ class Info_relay_env(ParallelEnv):
             base.state.p_vel = np.zeros(world.dim_p)
 
             base.color_intensity = 0 # resets graphics so it does not look like it is sending
+
+        world.R = np.linalg.norm(world.bases[0].state.p_pos - world.bases[1].state.p_pos)
 
         world.bases[0].state.c = 1
         world.bases[1].state.c = 0
@@ -613,7 +614,7 @@ class Info_relay_env(ParallelEnv):
 
             for base in self.world.bases: # really dont need to loop through the bases as only one base is sending now - only check the first base
                 if base.state.c == 1: # if sending
-                    SNR = self.calculate_SNR(agent, base)
+                    SNR = self.calculate_SNR(agent, base, self.world.emitters)
                     if self.check_signal_detection(SNR):
                         agent.message_buffer = True
                         agent.state.c = 1 # not it will send continously 
@@ -626,7 +627,7 @@ class Info_relay_env(ParallelEnv):
                 if other.name == agent.name:
                     continue
                 if other.message_buffer:
-                    SNR = self.calculate_SNR(agent, other)
+                    SNR = self.calculate_SNR(agent, other, self.world.emitters)
                     if self.check_signal_detection(SNR):
                         agent.message_buffer = True
                         agent.state.c = 1
@@ -634,14 +635,14 @@ class Info_relay_env(ParallelEnv):
 
         for base in self.world.bases: # maybe remove loop - only look at the 2nd base
             for agent in self.world.agents:
-                SNR = self.calculate_SNR(base, agent)
+                SNR = self.calculate_SNR(base, agent, self.world.emitters)
                 if self.check_signal_detection(SNR):
                     base.message_buffer = True # the game should end once this condition is met
                     continue
             for other in self.world.bases: # maybe remove loop - only look at the first base
                 if other.name == base.name:
                     continue
-                SNR = self.calculate_SNR(base, other)
+                SNR = self.calculate_SNR(base, other, self.world.emitters)
                 if self.check_signal_detection(SNR):
                     base.message_buffer = True
                     continue
@@ -667,7 +668,7 @@ class Info_relay_env(ParallelEnv):
             return False # signal not detected
 
 
-    def calculate_SNR(self, reciever, transmitter):
+    def calculate_SNR(self, reciever, transmitter, jammers):
         """
         Calculates the SNR between transmitter and reciever. It is assumed that all entities can listen uniformly in all directions.
         All bases send uniformly in all directions. All agents send in the direction of its antenna
@@ -705,13 +706,25 @@ class Info_relay_env(ParallelEnv):
 
             #print(f"reciever {reciever.name}, transmitter {transmitter.name}, phi_r/phi_t: {phi_r}/{phi_t} SNR: ", SNR)
 
+            for jammer in jammers:
+                #Start jamming
+                rel_pos_j = reciever.state.p_pos - jammer.state.p_pos
+                SNR = SNR / (1 + 3 * ((np.linalg.norm(rel_pos_j))**(-2)))
+
             return SNR
         
         else:
             # SNR calculation in the isotropic sending and receiving scenarios 
             rel_pos = transmitter.state.p_pos - reciever.state.p_pos
+            
+            transmitted_power = transmitter.transmit_power/(np.linalg.norm(rel_pos) * reciever.internal_noise)**2
 
-            return transmitter.transmit_power/(np.linalg.norm(rel_pos) * reciever.internal_noise)**2
+            for jammer in jammers:
+                #Start jamming
+                rel_pos_j = reciever.state.p_pos - jammer.state.p_pos
+                transmitted_power = transmitted_power / (1 + 3 * ((np.linalg.norm(rel_pos_j))**(-2)))
+
+            return transmitted_power
         
     
     def full_relative_observation(self, agent):
@@ -875,12 +888,6 @@ class Info_relay_env(ParallelEnv):
             assert (
                 0 < x < self.width and 0 < y < self.height
             ), f"Coordinates {(x, y)} are out of bounds."
-
-            if isinstance(entity, Emitter): # transmit radius for bases
-                scaled_transmission_radius_emitters = (self.transmission_radius_emitters / cam_range) * (self.width // 2) * 0.9
-                pygame.draw.circle(
-                    self.screen, (0, 0, 0), (x, y), scaled_transmission_radius_emitters, 1
-                )  # signal transmit radius
 
             # Display entity name next to it
             name_x_pos = x + 10  # Offset slightly to the right

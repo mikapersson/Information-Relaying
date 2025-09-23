@@ -131,7 +131,7 @@ class Emitter(Entity): # always transmitting - taking no actions (atleast yet)
         self.generate_action()
 
     def generate_action(self):
-        if self.action.u is None:
+        while self.action.u is None or np.linalg.norm(self.action.u) == 0:
             self.action.u = np.array([float(np.random.randint(-1,2)), float(np.random.randint(-1,2))])
         else:
             # Reverse direction
@@ -192,7 +192,7 @@ class World:  # multi-agent world
         self.bases = []
         self.emitters = []
         self.center = None
-        self.radius = None
+        self.R = None # Distance between bases
         self.max_allowed_emitter_distance = 0.75
         # communication channel dimensionality (we only have destination??)
         self.dim_c = 0
@@ -242,15 +242,13 @@ class World:  # multi-agent world
 
         for emitter in self.emitters:
             dist = np.linalg.norm(emitter.state.p_pos - self.center)
-            normalized_dist = dist / self.radius  # Normalize relative to allowed radius
+            normalized_dist = dist / self.R  # Normalize relative to allowed radius
             if normalized_dist > self.max_allowed_emitter_distance:
                 emitter.generate_action()
 
         for i, agent in enumerate(self.agents):
             # used to check correct init (uniqe) id's for all agents
             #print(f"Agent {agent.name} p_pos id: {id(agent.state.c)}")
-            print(agent.action.u[:2])
-            print(agent.action.u[2])
             self.apply_process_model_2_drones(agent, agent.action.u[:2], agent.action.u[2])
 
         for emitter in self.emitters:
