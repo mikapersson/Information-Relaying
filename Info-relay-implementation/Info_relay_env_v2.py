@@ -115,7 +115,7 @@ class Info_relay_env(ParallelEnv):
         
         # Ny kommentar: används ej inne i klassen - vet ej om benchmarl letar efter detta så avvaktar med att ta bort till testat med benchmarl
         # OBS really need to dubble check the state space - what is to be included - is it neccessary??
-        state_dim = dim_p * (self.n_agents - 1) + dim_p * self.num_bases + self.n_agents * self.world.agents[0].message_buffer_size * 3
+        state_dim = dim_p * (self.n_agents - 1) + dim_p * self.num_bases + self.n_agents
         self.state_space = spaces.Box(
             low=-np.float32(np.inf),
             high=+np.float32(np.inf),
@@ -193,7 +193,6 @@ class Info_relay_env(ParallelEnv):
         self.transmission_radius_emitters = self.calculate_transmission_radius(self.world.emitters[0])
 
         self.recived_messages_bases = [] # an attribute that keeps track of all messages recieved by bases THIS timestep    
-        self.recived_messages_agents = [] # keeps track of all messages recieved by agents this timestep - to give reward based in such behaviour
 
         self.episode_counter = 0 # checks how many times the environemnt has been reset. Used for continously changing the starting states
 
@@ -354,7 +353,7 @@ class Info_relay_env(ParallelEnv):
             agent.state.p_vel = np.zeros(world.dim_p) 
             agent.state.c = 0 # ingen agent börjar med meddelande - alltså sänder ingen i början - kanske inte behöver denna - kör bara .message_buffer
 
-            agent.state.theta = 0.0 # TODO randomize 
+            agent.state.theta = np.random.uniform(0,2*np.pi)
             # initiate the message_buffer so that it always has the same size
             agent.message_buffer = False
 
@@ -505,13 +504,8 @@ class Info_relay_env(ParallelEnv):
 
         Scenario 1: terminates after first correct message delivered
         """
-
-        if len(self.recived_messages_bases) > 0:
-            #print("messages:", self.recived_messages_bases)
-            msg = self.recived_messages_bases[0] # only one message possible per timestep in ths scenario - still a list
-            if msg[2] == int(msg[4][-1].split("_")[1]):
-                self.agents = []
-                return {agent.name: True for agent in self.world.agents}
+        if self.world.bases[1].message_buffer:
+            return {agent.name: True for agent in self.world.agents}
 
         return {agent.name: False for agent in self.world.agents}
 
@@ -546,12 +540,9 @@ class Info_relay_env(ParallelEnv):
         Rewards given to all agents. Given by correctly delivering messages.
         """
         reward = 0
-        # TODO - update to new correct reward
-        for msg in self.recived_messages_bases:
-            if msg[2] == int(msg[4][-1].split("_")[1]): # correct destination
-                #reward += max(100 - 0.5*msg[3], 50) # fine tune so that the reward is large enough! # minus the time it took to deliver message
-                reward = 100 #- 50 * (msg[3] / self.max_iter) # this is max 100 and min 50 (as msg[3] is at most max_iter large)
-                break # make sure only one delivered message gets rewarded. Change for other scenarios
+
+        if self.world.bases[1].message_buffer: # meddelandet har levererats (detta tidsteg)
+            pass # TODO lägg in korrekt funktion här
 
         return reward
 
@@ -584,7 +575,6 @@ class Info_relay_env(ParallelEnv):
         """
         # TODO - update to new reward
         return global_reward - self.calculate_action_penalties(agent)*10 #+ reward_help/10
-    
     
     def get_entity_by_name(self, name):
         """
