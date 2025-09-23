@@ -190,7 +190,6 @@ class Info_relay_env(ParallelEnv):
 
         self.transmission_radius_bases = self.calculate_transmission_radius(self.world.bases[0])
         self.transmission_radius_drones = self.calculate_transmission_radius(self.world.agents[0])
-        self.transmission_radius_emitters = self.calculate_transmission_radius(self.world.emitters[0])
 
         self.recived_messages_bases = [] # an attribute that keeps track of all messages recieved by bases THIS timestep    
 
