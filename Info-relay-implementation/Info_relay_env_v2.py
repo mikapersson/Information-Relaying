@@ -240,7 +240,6 @@ class Info_relay_env(ParallelEnv):
 
         #world.bases[1].silent = True # first scenario is one way communication
         #world.bases[0].generate_messages = False # the same message all the time
-        print("num emitters: ", num_emitters)
 
 
         return world
