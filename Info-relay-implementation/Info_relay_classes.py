@@ -242,7 +242,7 @@ class World:  # multi-agent world
 
         for emitter in self.emitters:
             dist = np.linalg.norm(emitter.state.p_pos - self.center)
-            normalized_dist = dist / self.R  # Normalize relative to allowed radius
+            normalized_dist = dist / self.R  # Normalize relative to base distance
             if normalized_dist > self.max_allowed_emitter_distance:
                 emitter.generate_action()
 
