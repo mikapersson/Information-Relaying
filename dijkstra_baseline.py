@@ -2,6 +2,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 import networkx as nx
 from matplotlib.lines import Line2D
+import matplotlib.animation as animation
+from matplotlib.animation import FFMpegWriter
 
 
 def compute_retrieval_point(pk, Rcom):
@@ -350,8 +352,6 @@ def plot_scenario_with_path_colored(sample, dijkstra_result, savepath=None):
 
     # Plot the retrieval point in orange
     ax.scatter(ps_k[0], ps_k[1], c=relay_color, marker='o')
-    circle = plt.Circle(ps_k, Rcom, color=relay_color, fill=False, linestyle='-', alpha=0.5)
-    ax.add_artist(circle)
 
     # Plot dashed line between retrieval point and receiving base
     ax.plot([ps_k[0], p_recv[0]], [ps_k[1], p_recv[1]], 'o--', linewidth=1.5, alpha=0.4)  # label='Retrieval-to-receiver line'
@@ -397,8 +397,17 @@ def plot_scenario_with_path_colored(sample, dijkstra_result, savepath=None):
                 end = relay_points[node_to] - direction * Rcom
                 ax.annotate("", xy=end, xytext=start,
                             arrowprops=dict(arrowstyle="->", color=deliver_color, lw=2))
+        elif node_to == 'r':
+            # Last arrow: from last relay point to edge of receiver base Rcom circle
+            direction = p_recv - start
+            norm = np.linalg.norm(direction)
+            if norm > Rcom + 1e-8:
+                direction = direction / norm
+                end = p_recv - direction * Rcom
+                ax.annotate("", xy=end, xytext=start,
+                            arrowprops=dict(arrowstyle="->", color=deliver_color, lw=2))
         else:
-            # For non-agent nodes (e.g., receiver base), plot arrow if distance > Rcom
+            # For other cases, plot arrow if distance > Rcom
             norm = np.linalg.norm(end - start)
             if norm > Rcom + 1e-8:
                 ax.annotate("", xy=end, xytext=start,
@@ -425,12 +434,190 @@ def plot_scenario_with_path_colored(sample, dijkstra_result, savepath=None):
 
     ax.set_aspect('equal')
     ax.grid(True, linestyle='--', alpha=0.6)
+    plt.title(f"Dijkstra Baseline ($K$: {K}; Time steps: {dijkstra_result['delivery_time']})")
 
     if savepath:
-        plt.savefig(savepath, dpi=150)
-    plt.show()
+        plt.savefig(savepath, dpi=300)
+    #plt.show()
 
+def animate_dijkstra(sample, dijkstra_result, savepath='dijkstra_animation.mp4'):
+    R = sample['R']
+    Rmin = sample['Rmin']
+    Rmax = sample['Rmax']
+    p_agents = sample['p_agents']
+    p_recv = sample['p_recv']
+    p0 = sample['p0']
+    p_tx = sample['p_tx']
+    Rcom = sample['Rcom']
+    Ra = sample['Ra']
 
+    agent_start_times = dijkstra_result['agent_start_times']
+    agent_stop_times = dijkstra_result['agent_stop_times']
+    agent_distances = dijkstra_result['agent_distances']
+    relay_points = dijkstra_result['relay_points']
+    relaying_agents = dijkstra_result['relaying_agents']
+    best_k = dijkstra_result['retrieving_agent']
+    T_D = dijkstra_result['delivery_time']
+
+    # Precompute agent trajectories (linear interpolation)
+    agent_traj = []
+    for k in range(len(p_agents)):
+        if k == best_k:
+            dest = compute_retrieval_point(p_agents[k], Rcom)
+        elif k in relay_points:
+            dest = relay_points[k]
+        else:
+            dest = p_agents[k]
+        agent_traj.append((p_agents[k], dest))
+
+    fig, ax = plt.subplots(figsize=(6, 6))
+    receive_color = "red"
+    deliver_color = "green"
+    relay_color = "orange"
+
+    def update(t):
+        ax.clear()
+        # Plot static elements
+        ax.scatter(p_agents[:, 0], p_agents[:, 1], c='blue', alpha=0.3, label='Initial agent positions')
+        ax.scatter(*p_tx, c=receive_color, marker='s', label='Transmitting base $p_{tx}$')
+        ax.add_artist(plt.Circle(p_tx, Rcom, color=receive_color, fill=False, linestyle='--', alpha=0.6))
+        ax.scatter(*p_recv, c=deliver_color, marker='s', label='Receiver base')
+        ax.add_artist(plt.Circle(p_recv, Rcom, color=deliver_color, fill=False, linestyle='--'))
+        ax.add_artist(plt.Circle(p0, 0.6*R, color='blue', fill=False, linestyle='--', alpha=0.6))
+
+        # Plot relay points and their circles
+        for idx, relay in relay_points.items():
+            ax.scatter(relay[0], relay[1], c=relay_color, alpha=1.0, marker='o')
+            circle = plt.Circle(relay, Rcom, color=relay_color, fill=False, linestyle='--', alpha=0.5)
+            ax.add_artist(circle)
+
+        # Plot retrieval point in orange
+        km = dijkstra_result['retrieving_agent']
+        ps_k = compute_retrieval_point(p_agents[km], Rcom)
+        ax.scatter(ps_k[0], ps_k[1], c=relay_color, marker='o')
+
+        # Plot dashed line between retrieval point and receiving base
+        ax.plot([ps_k[0], p_recv[0]], [ps_k[1], p_recv[1]], 'o--', linewidth=1.5, alpha=0.4)
+
+        # Plot agent positions at time t
+        for k in range(len(p_agents)):
+            t_start = agent_start_times[k]
+            t_stop = agent_stop_times[k]
+            start, end = agent_traj[k]
+            if t < t_start:
+                pos = start
+            elif t >= t_stop:
+                pos = end
+            else:
+                frac = (t - t_start) / max(1, t_stop - t_start)
+                pos = start + frac * (end - start)
+            ax.scatter(pos[0], pos[1], c='blue', s=80, alpha=1.0)
+
+        # Plot relay arrows (only if agent has started moving)
+        path = dijkstra_result['path']
+        for i in range(len(path)-1):
+            node_from = path[i]
+            node_to = path[i+1]
+            def get_plot_pos(node):
+                if isinstance(node, int) and node in relay_points:
+                    return relay_points[node]
+                elif node == 's_k':
+                    return ps_k
+                elif node == 'r':
+                    return p_recv
+                else:
+                    return p_agents[node]
+            start = get_plot_pos(node_from)
+            end = get_plot_pos(node_to)
+            # If next node is a relay agent, plot arrow to the edge of its Rcom circle
+            if isinstance(node_to, int) and node_to in relay_points:
+                direction = relay_points[node_to] - start
+                norm = np.linalg.norm(direction)
+                if norm > Rcom + 1e-8:
+                    direction = direction / norm
+                    arrow_end = relay_points[node_to] - direction * Rcom
+                    ax.annotate("", xy=arrow_end, xytext=start,
+                                arrowprops=dict(arrowstyle="->", color=deliver_color, lw=2))
+            elif node_to == 'r':
+                direction = p_recv - start
+                norm = np.linalg.norm(direction)
+                if norm > Rcom + 1e-8:
+                    direction = direction / norm
+                    arrow_end = p_recv - direction * Rcom
+                    ax.annotate("", xy=arrow_end, xytext=start,
+                                arrowprops=dict(arrowstyle="->", color=deliver_color, lw=2))
+
+        ax.set_xlim(-1.3*Rcom, R+1.3*Rcom)
+        ax.set_ylim(-1.1*Ra, 1.1*Ra)
+        ax.set_aspect('equal')
+        ax.grid(True, linestyle='--', alpha=0.6)
+        ax.set_title(f"Dijkstra Baseline Animation (timestep {t}/{T_D})")
+
+    ani = animation.FuncAnimation(fig, update, frames=range(dijkstra_result['delivery_time']+1), interval=300)
+    writer = FFMpegWriter(fps=3, metadata=dict(artist='Me'), bitrate=1800)
+    ani.save(savepath, writer=writer, dpi=200)
+    plt.close(fig)
+    
+
+def animate_dijkstra_minimal(sample, dijkstra_result):
+    R = sample['R']
+    p_agents = sample['p_agents']
+    p_recv = sample['p_recv']
+    p_tx = sample['p_tx']
+    Rcom = sample['Rcom']
+    Ra = sample['Ra']
+
+    agent_start_times = dijkstra_result['agent_start_times']
+    agent_stop_times = dijkstra_result['agent_stop_times']
+    relay_points = dijkstra_result['relay_points']
+    best_k = dijkstra_result['retrieving_agent']
+    T_D = dijkstra_result['delivery_time']
+
+    # Precompute agent trajectories (linear interpolation)
+    agent_traj = []
+    for k in range(len(p_agents)):
+        if k == best_k:
+            dest = compute_retrieval_point(p_agents[k], Rcom)
+        elif k in relay_points:
+            dest = relay_points[k]
+        else:
+            dest = p_agents[k]
+        agent_traj.append((p_agents[k], dest))
+
+    fig, ax = plt.subplots(figsize=(6, 6))
+
+    def update(t):
+        ax.clear()
+        ax.scatter(p_agents[:, 0], p_agents[:, 1], c='blue', alpha=0.3)
+        ax.scatter(*p_tx, c='red', marker='s')
+        ax.scatter(*p_recv, c='green', marker='s')
+        ax.add_artist(plt.Circle(p_tx, Rcom, color='red', fill=False, linestyle='--', alpha=0.6))
+        ax.add_artist(plt.Circle(p_recv, Rcom, color='green', fill=False, linestyle='--'))
+        # Plot relay points
+        for relay in relay_points.values():
+            ax.scatter(relay[0], relay[1], c='orange', marker='o')
+        # Plot agent positions at time t
+        for k in range(len(p_agents)):
+            t_start = agent_start_times[k]
+            t_stop = agent_stop_times[k]
+            start, end = agent_traj[k]
+            if t < t_start:
+                pos = start
+            elif t >= t_stop:
+                pos = end
+            else:
+                frac = (t - t_start) / max(1, t_stop - t_start)
+                pos = start + frac * (end - start)
+            ax.scatter(pos[0], pos[1], c='blue', s=80, alpha=1.0)
+        ax.set_xlim(-1.3*Rcom, R+1.3*Rcom)
+        ax.set_ylim(-1.1*Ra, 1.1*Ra)
+        ax.set_aspect('equal')
+        ax.set_title(f"Timestep {t}/{T_D}")
+
+    ani = animation.FuncAnimation(fig, update, frames=range(T_D+1), interval=300)
+    ani.save('dijkstra_animation.gif', writer='pillow', dpi=120)
+    plt.close(fig)
+    
 
 
 if __name__ == '__main__':
@@ -438,7 +625,13 @@ if __name__ == '__main__':
     Rcom = 1.0
     R = (K+4)*Rcom
     Ra = 0.6*R
+    seed=5
+    save_path = fr'Plots/dijkstra_baseline_K{K}_seed{seed}.png'
 
-    sample = sample_scenario(K=K, Rcom=Rcom, R=R, Ra=Ra, seed=41)
+    sample = sample_scenario(K=K, Rcom=Rcom, R=R, Ra=Ra, seed=seed)
     result = dijkstra_baseline(sample['p_agents'], sample['p_tx'], sample['p_recv'], Rcom=Rcom)    
-    plot_scenario_with_path_colored(sample, result, savepath='Plots/scenario_with_path.png')
+    plot_scenario_with_path_colored(sample, result, savepath=save_path)
+
+    # Uncomment to generate animation
+    #animate_dijkstra(sample, result, savepath='dijkstra_animation.mp4')
+    animate_dijkstra_minimal(sample, result)
