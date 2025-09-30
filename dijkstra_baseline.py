@@ -6,80 +6,71 @@ import matplotlib.animation as animation
 from matplotlib.animation import FFMpegWriter
 
 
-def compute_retrieval_point(pk, Rcom):
-    norm_pk = np.linalg.norm(pk)
+def compute_retrieval_point(pk, Rcom, p_tx=np.array([0.0, 0.0])):
+    v = pk - p_tx 
+    norm_pk = np.linalg.norm(v)
     if norm_pk > Rcom:
-        return (Rcom / norm_pk) * pk
+        return (Rcom / norm_pk) * v + p_tx
     else:
         return pk
 
-def compute_projection(pj, ps_k, pr):
-    v = pr - ps_k
-    v_norm_sq = np.dot(v, v)
-    if v_norm_sq == 0:
-        return ps_k.copy()  # degenerate case
-    alpha = np.dot(pj - ps_k, v) / v_norm_sq
-    # Optionally clamp alpha to [0, 1] if you want projections only on the segment
-    # alpha = np.clip(alpha, 0, 1)
-    return ps_k + alpha * v
-
 def compute_relay_point(pj, ps_k, pk, pr, j_idx, Rcom):
-    # --- Compute unit direction u ---
+    # Compute unit direction u from retrieving point to receiving base
     u = pr - ps_k
     norm_u = np.linalg.norm(u)
-    if norm_u == 0:
+    if norm_u == 0:  # will never happen in our scenarios
         u = np.zeros_like(u)
     else:
         u = u / norm_u
 
-    # --- Orthogonal projection of pj onto line ---
-    alpha_j = np.dot(pj - ps_k, u)
-    bar_pj = ps_k + alpha_j * u
+    # Orthogonal projection of pj (relay agent j's initial position) onto line 
+    alpha_j = np.dot(pj - ps_k, u) 
+    pj_bar = ps_k + alpha_j * u  # projected point on line
 
-    # --- Parameters ---
-    b = np.linalg.norm(pj - bar_pj)
-    D = np.linalg.norm(ps_k - pk)
-    a = np.linalg.norm(bar_pj - ps_k) - (j_idx-1)*Rcom
+    # Help parameters 
+    b = np.linalg.norm(pj - pj_bar)  # distance from pj to line
+    D = np.linalg.norm(ps_k - pk)    # distance between retrieving agent and its retrieval point
+    a = np.linalg.norm(pj_bar - ps_k) - (j_idx-1)*Rcom  # distance from pj_bar to ps_k minus offset
 
-    # --- Condition for direct projection ---
-    cond = b <= D - np.linalg.norm(bar_pj - ps_k) - (j_idx-1)*Rcom
-    if cond:
-        return bar_pj
-
-    # --- Fallback: solve for q_j ---
-    n = (pj - bar_pj) / (b + 1e-12)  # unit normal from line to pj
-
-    # Quadratic coefficients
-    A = 4*(b**2 - D**2)
-    B = 4*b*(D**2 + a**2 - b**2)
-    C = (D**2 + a**2 - b**2)**2 - 4*D**2*a**2
-
-    disc = B**2 - 4*A*C
-    if disc < 0 or A == 0:
-        return bar_pj  # fallback to projection
-
-    t1 = (-B + np.sqrt(disc)) / (2*A)
-    t2 = (-B - np.sqrt(disc)) / (2*A)
-
-    # Candidates
-    q1 = bar_pj + t1 * n
-    q2 = bar_pj + t2 * n
-
-    # Admissible root: same side as pj and original equation holds
-    candidates = []
-    for t, q in zip([t1, t2], [q1, q2]):
-        if np.dot(q - bar_pj, pj - bar_pj) >= 0:
-            # Check original (unsquared) equation
-            lhs = np.abs(b - t)
-            rhs = D + np.sqrt(a**2 + t**2)
-            if np.isclose(lhs, rhs, atol=1e-6):
-                candidates.append(q)
-    if candidates:
-        return candidates[0]
+    # Condition for direct projection 
+    cond = b <= D - a  # (original equation)
+    if cond:  # relay agent can reach line in time 
+        return pj_bar
     else:
-        return bar_pj
+        # Fallback: solve for q_j 
+        n = (pj - pj_bar) / (b + 1e-12)  # unit normal from line to pj
 
-def dijkstra_baseline(p_agents, p_tx, p_recv, Rcom=1.0, sigma=0.1, beta=0.99, r_del=1.0, c_pos=0.1):
+        # Quadratic coefficients
+        A = 4*(b**2 - D**2)
+        B = 4*b*(D**2 + a**2 - b**2)
+        C = (D**2 + a**2 - b**2)**2 - 4*D**2*a**2
+
+        discriminant = B**2 - 4*A*C
+        if discriminant < 0 or A == 0:
+            return pj_bar  # fallback to projection
+
+        t1 = (-B + np.sqrt(discriminant)) / (2*A)
+        t2 = (-B - np.sqrt(discriminant)) / (2*A)
+
+        # Candidates
+        q1 = pj_bar + t1 * n
+        q2 = pj_bar + t2 * n
+
+        # Admissible root: same side as pj and original equation holds
+        candidates = []
+        for t, q in zip([t1, t2], [q1, q2]):
+            if np.dot(q - pj_bar, pj - pj_bar) >= 0:
+                # Check original equation 
+                lhs = np.abs(b - t)             # distance traveled by relay agent
+                rhs = D + np.sqrt(a**2 + t**2)  # distance traveled by retrieving agent
+                if np.isclose(lhs, rhs, atol=1e-6):
+                    candidates.append(q)
+        if candidates:
+            return candidates[0]
+        else:
+            return pj_bar
+
+def dijkstra_baseline(p_agents, p_tx, p_recv, Rcom=1.0, sigma=0.1, beta=0.99, c_pos=0.1):
     K = p_agents.shape[0]
     I = list(range(K))
     best_path = None
@@ -96,55 +87,70 @@ def dijkstra_baseline(p_agents, p_tx, p_recv, Rcom=1.0, sigma=0.1, beta=0.99, r_
 
     for k in I:
         pk = p_agents[k]
-        ps_k = compute_retrieval_point(pk, Rcom)
+        ps_k = compute_retrieval_point(pk, Rcom, p_tx)
         pr = p_recv
-        v = pr - ps_k
-        v_norm_sq = np.dot(v, v)
+
         # Build graph G_k
         Gk = nx.DiGraph()
+
+        # Node set
         node_map = {}  # maps agent idx to relay point
         Gk.add_node(k, pos=pk)  # retrieving agent
         Gk.add_node('s_k', pos=ps_k)
         Gk.add_node('r', pos=pr)
+
         # Add relay agents
         for j in I:
-            if j == k:
+
+            # No need to add retrieving agent again
+            if j == k:  
                 continue
+
+            # Compute relay point for agent j
             pj = p_agents[j]
-            pmeet_j = compute_projection(pj, ps_k, pr)
-            alpha = np.dot(pj - ps_k, pr - ps_k) / np.dot(pr - ps_k, pr - ps_k)
-            # Option 1: Remove the alpha check entirely
-            # (include all agents as relay candidates)
-            # Or
-            
-            # Option 2: Use a tolerance
-            tol = 0.2  # for example
-            if alpha < -tol or alpha > 1+tol:
-                continue  # skip agents whose projection is not on the segment
-            relay_j = compute_relay_point(pj, ps_k, pk, pr, j_idx=(j+1), Rcom=Rcom)
+            relay_j = compute_relay_point(pj, ps_k, pk, pr, j_idx=(j+1), Rcom=Rcom)  # \hat{p}_j in paper
             node_map[j] = relay_j
             Gk.add_node(j, pos=relay_j)
-        # Edges
+
+        # Edge set
+        # From retrieving agent k to its retrieval point s_k
         Gk.add_edge(k, 's_k', weight=np.linalg.norm(ps_k - pk))
+
+        # From retrieval point s_k to receiving base r
         Gk.add_edge('s_k', 'r', weight=max(0, np.linalg.norm(pr - ps_k) - Rcom))
+
+        # From retrieval point s_k to relay agents j
         for j, relay_j in node_map.items():
-            w = max(0, np.linalg.norm(relay_j - ps_k) - Rcom)
-            Gk.add_edge('s_k', j, weight=w)
-            Gk.add_edge(j, 'r', weight=max(0, np.linalg.norm(pr - relay_j) - Rcom))
+            if j != k:
+                w = max(0, np.linalg.norm(relay_j - ps_k) - Rcom)
+                Gk.add_edge('s_k', j, weight=w)
+
+                # From relay agents j to receiving base r
+                Gk.add_edge(j, 'r', weight=max(0, np.linalg.norm(pr - relay_j) - Rcom))
+        
+        # From relay agents j to other relay agents l
         for j, relay_j in node_map.items():
-            for l, relay_l in node_map.items():
-                if j != l:
-                    Gk.add_edge(j, l, weight=max(0, np.linalg.norm(relay_l - relay_j) - Rcom))
+            if j != k:
+                for l, relay_l in node_map.items():
+                    if j != l and l != k:
+                        Gk.add_edge(j, l, weight=max(0, np.linalg.norm(relay_l - relay_j) - Rcom))
+
         # Run Dijkstra from k to r
         try:
             path = nx.dijkstra_path(Gk, source=k, target='r', weight='weight')
+
+            # Compute total distance of path
             total_dist = 0
             for i in range(len(path)-1):
                 total_dist += Gk.edges[path[i], path[i+1]]['weight']
+
+
             candidate_paths.append((path, total_dist))
             candidate_relay_points.append(node_map)
             candidate_graphs.append(Gk)
             candidate_k.append(k)
+
+            # Update best if needed
             if total_dist < best_distance:
                 best_distance = total_dist
                 best_path = path
@@ -156,53 +162,68 @@ def dijkstra_baseline(p_agents, p_tx, p_recv, Rcom=1.0, sigma=0.1, beta=0.99, r_
 
     # Find relaying agents in optimal path (excluding retrieving agent and bases)
     relaying_agents = [n for n in best_path if isinstance(n, int) and n != best_k]
-    k_D = len(relaying_agents)
-    T_M = int(np.ceil(best_distance / sigma))
-    T_D = T_M + k_D + 2
+    k_D = len(relaying_agents)                 # number of relaying agents
+    T_M = int(np.ceil(best_distance / sigma))  # movement time
+    T_D = T_M + k_D + 2                        # total delivery time
 
     # Compute per-agent distances and movement times
     D_k = np.zeros(K)
     t_start_k = np.zeros(K, dtype=int)
-    t_stop_k = np.zeros(K, dtype=int)
+    t_stop_k = -1*np.ones(K, dtype=int)  # -1 means agent does not move
+
     # Map agent index to relay point in path
     relay_points_in_path = []
     for n in best_path:
         if isinstance(n, int) and n != best_k:
             relay_points_in_path.append(best_relay_points[n])
-    # For retrieving agent
-    if k_D > 0:
+
+    # Distance and movement times for retrieving agent
+    if k_D > 0:  # there are relaying agents
         first_relay = relaying_agents[0]
+
         # Use retrieving agent's position and retrieval point
-        D_k[best_k] = max(0, np.linalg.norm(best_graph.nodes['s_k']['pos'] - p_agents[best_k]) - Rcom) \
+        D_k[best_k] = np.linalg.norm(best_graph.nodes['s_k']['pos'] - p_agents[best_k]) \
             + max(0, np.linalg.norm(best_relay_points[first_relay] - best_graph.nodes['s_k']['pos']) - Rcom)
-    else:
+    else:  # no relaying agents
         D_k[best_k] = max(0, np.linalg.norm(best_graph.nodes['s_k']['pos'] - p_agents[best_k]) - Rcom)
-    # For relaying agents
+    
+    # Distances and movement times for relaying agents
     for idx, k in enumerate(relaying_agents):
         relay_point = best_relay_points[k]
-        if idx < k_D - 1:
+        if idx < k_D - 1:  # not the last relay agent
             next_relay = relaying_agents[idx+1]
             D_k[k] = np.linalg.norm(relay_point - p_agents[k]) \
                 + max(0, np.linalg.norm(best_relay_points[next_relay] - relay_point) - Rcom)
-        else:
-            # Last relay agent
+        else:  # last relay agent
             D_k[k] = np.linalg.norm(relay_point - p_agents[k]) \
                 + max(0, np.linalg.norm(p_recv - relay_point) - Rcom)
+            
     # Movement times
+    t_stop_k[best_k] = int(np.ceil(
+                np.linalg.norm(best_graph.nodes['s_k']['pos'] - p_agents[best_k]) / sigma
+            )) + 1 + int(np.ceil(  # +1 for relay time
+                max(0, np.linalg.norm(best_relay_points[0] - best_graph.nodes['s_k']['pos']) - Rcom
+            ) / sigma))  
     for idx, k in enumerate(relaying_agents):
+        # Start time: must arrive at relay point before the preceding agent arrives
+        travel_projection_time = int(np.ceil(np.linalg.norm(best_relay_points[k] - p_agents[k]) / sigma))
         if idx == 0:
-            D_kstar_k = max(0, np.linalg.norm(best_relay_points[k] - best_graph.nodes['s_k']['pos']) - Rcom) \
-                + max(0, np.linalg.norm(best_relay_points[k] - best_graph.nodes['s_k']['pos']) - Rcom)
-            t_start_k[k] = int(np.floor(max(0, D_kstar_k - np.linalg.norm(best_relay_points[k] - p_agents[k])) / sigma)) + idx
+            t_start_k[k] = t_stop_k[best_k] - travel_projection_time
         else:
             prev_relay = relaying_agents[idx-1]
-            D_prev = np.linalg.norm(best_relay_points[k] - best_relay_points[prev_relay])
-            t_start_k[k] = int(np.floor(max(0, D_prev - np.linalg.norm(best_relay_points[k] - p_agents[k])) / sigma)) + idx
-        t_stop_k[k] = t_start_k[k] + int(np.ceil(D_k[k] / sigma))
-    # Retrieving agent
-    t_stop_k[best_k] = int(np.ceil(D_k[best_k] / sigma))
+            prev_arrival = t_stop_k[prev_relay]  # previous relay agent's arrival at this relay point
+            t_start_k[k] = prev_arrival - travel_projection_time
 
-    # Value computation
+        # Stop time: when agent reaches the point where it relays the message to the next agent
+        next_relay_time = int(np.ceil(max(0, np.linalg.norm(best_relay_points[relaying_agents[idx+1]] - best_relay_points[k]) - Rcom) / sigma)) \
+            if idx < k_D - 1 else int(np.ceil(max(0, np.linalg.norm(p_recv - best_relay_points[k]) - Rcom) / sigma))
+        t_stop_k[k] = t_start_k[k] + travel_projection_time + 1 + next_relay_time  
+
+    # Value computation (see reasoning behind cost parameters, especially state s^#)
+    T = int(np.floor((1.1 * R + 2 * Rcom) / sigma)) + K
+    Rmax = (K+4)*Rcom
+    D_tot = (1 + 0.1 * K) * Rmax + (2 + 0.5 * K * (K - 1)) * Rcom
+    r_del = ((1-beta**T)/(1-beta))*(D_tot/T)
     V_piD = (beta**T_D)*r_del
     for t in range(T_D+1):
         for k in range(K):
@@ -239,10 +260,9 @@ def sample_scenario(K=5, Rcom=1.0, R=5.0, Ra=0.6, seed=None):
     p0 = np.array([R/2, 0.0])
 
     # Agents positions around p0
-    p_agents = rng.uniform(-Ra, Ra, size=(K, 2))
-    p_agents = p0 + p_agents * rng.random((K, 1))
-    #norms = np.linalg.norm(p_agents, axis=1, keepdims=True)
-    #p_agents = p0 + p_agents / norms * rng.random((K, 1))
+    agent_radiuses = Ra * np.sqrt(rng.uniform(0, 1, size=(K, 1)))    
+    agent_angles = rng.uniform(0, 2*np.pi, size=(K, 1))
+    p_agents = p0 + agent_radiuses*np.hstack([np.cos(agent_angles), np.sin(agent_angles)])
 
     # Receiver base
     p_recv = np.array([R, 0.0])
@@ -278,7 +298,7 @@ def plot_scenario(sample, savepath=None):
     ax.scatter(p_agents[:, 0], p_agents[:, 1], c='blue', alpha=0.3, label='Initial agent positions')
 
     # Plot transmitting base at p_tx
-    ax.scatter(*p_tx, c='green', marker='s', label='Transmitting base $p_{tx}$')
+    ax.scatter(*p_tx, c='green', marker='s', label='Transmitting base')
     circle_tx = plt.Circle(p_tx, Rcom, color='green', fill=False, linestyle='--', alpha=0.6)
     ax.add_artist(circle_tx)
 
@@ -321,24 +341,19 @@ def plot_scenario_with_path_colored(sample, dijkstra_result, savepath=None):
     Rcom = sample['Rcom']
     Ra = sample['Ra']
 
-    fig, ax = plt.subplots(figsize=(6, 6))
+    # Colors and line widths
+    agent_color = "blue"
+    init_agent_color = "grey"
     receive_color = "red"
     deliver_color = "green"
-    relay_color = "orange"
+    alpha_circle = 0.6
+    alpha_init_agent = 0.6
+    line_width = 2
 
-    # Plot initial agent positions (low opacity)
-    ax.scatter(p_agents[:, 0], p_agents[:, 1], c='blue', alpha=0.3)
+    fig, ax = plt.subplots(figsize=(6, 6))
 
-    # Transmitting base
-    ax.scatter(*p_tx, c=receive_color, marker='s', label='Transmitting base $p_{tx}$')
-    ax.add_artist(plt.Circle(p_tx, Rcom, color=receive_color, fill=False, linestyle='--', alpha=0.6))
-
-    # Midpoint base p0
-    #ax.add_artist(plt.Circle(p0, Ra, color='blue', fill=False, linestyle='--', alpha=0.6))
-
-    # Receiver base
-    ax.scatter(*p_recv, c=deliver_color, marker='s', label='Receiver base')
-    ax.add_artist(plt.Circle(p_recv, Rcom, color=deliver_color, fill=False, linestyle='--'))
+    # Plot initial agent positions
+    ax.scatter(p_agents[:, 0], p_agents[:, 1], c=init_agent_color, alpha=alpha_init_agent)
 
     # Node positions
     node_positions = {'s': p_tx, 'r': p_recv}
@@ -350,26 +365,36 @@ def plot_scenario_with_path_colored(sample, dijkstra_result, savepath=None):
     ps_k = compute_retrieval_point(p_agents[km], sample['Rcom'])
     node_positions['s_k'] = ps_k
 
-    # Plot the retrieval point in orange
-    ax.scatter(ps_k[0], ps_k[1], c=relay_color, marker='o')
+    # Plot the retrieval points
+    ax.scatter(ps_k[0], ps_k[1], c=agent_color, marker='o')
 
     # Plot dashed line between retrieval point and receiving base
-    ax.plot([ps_k[0], p_recv[0]], [ps_k[1], p_recv[1]], 'o--', linewidth=1.5, alpha=0.4)  # label='Retrieval-to-receiver line'
+    ax.plot([ps_k[0], p_recv[0]], [ps_k[1], p_recv[1]], c=init_agent_color, linestyle='--', linewidth=line_width, alpha=0.6)#, label='Relay projection line')
 
     path = dijkstra_result['path']
     relay_points = dijkstra_result['relay_points']
 
     # Plot relay points (destinations) with full opacity
     for idx, relay in relay_points.items():
-        ax.scatter(relay[0], relay[1], c=relay_color, alpha=1.0, marker='o', label='Relay points' if idx == list(relay_points.keys())[0] else "")
+        ax.scatter(relay[0], relay[1], c=agent_color, alpha=1.0, marker='o', label='Relay agent' if idx == list(relay_points.keys())[0] else "")
         # Add blue circle of radius Rcom around each relay point
-        circle = plt.Circle(relay, Rcom, color=relay_color, fill=False, linestyle='--', alpha=0.5)
+        circle = plt.Circle(relay, Rcom, color=agent_color, fill=False, linestyle='--', linewidth=line_width , alpha=alpha_circle)
         ax.add_artist(circle)
 
     # Connect initial agent positions to their relay points with dashed lines
     for idx, relay in relay_points.items():
         agent_pos = p_agents[idx]
-        ax.plot([agent_pos[0], relay[0]], [agent_pos[1], relay[1]], 'k--', alpha=0.7, linewidth=1)
+        ax.annotate(
+            "",  # No text
+            xy=relay,
+            xytext=agent_pos,
+            arrowprops=dict(
+                arrowstyle="->",
+                color="grey",
+                lw=line_width,
+                alpha=alpha_init_agent
+            )
+)
 
     # Message retrieval arrow (agent -> transmitter)
     #ax.annotate("", xy=node_positions['s'], xytext=node_positions[km],
@@ -396,7 +421,7 @@ def plot_scenario_with_path_colored(sample, dijkstra_result, savepath=None):
                 direction = direction / norm
                 end = relay_points[node_to] - direction * Rcom
                 ax.annotate("", xy=end, xytext=start,
-                            arrowprops=dict(arrowstyle="->", color=deliver_color, lw=2))
+                            arrowprops=dict(arrowstyle="->", color=deliver_color, lw=line_width))
         elif node_to == 'r':
             # Last arrow: from last relay point to edge of receiver base Rcom circle
             direction = p_recv - start
@@ -413,6 +438,17 @@ def plot_scenario_with_path_colored(sample, dijkstra_result, savepath=None):
                 ax.annotate("", xy=end, xytext=start,
                             arrowprops=dict(arrowstyle="->", color=deliver_color, lw=2))
 
+    # Transmitting base
+    ax.scatter(*p_tx, c=receive_color, marker='s', label='Transmitting base')
+    ax.add_artist(plt.Circle(p_tx, Rcom, color=receive_color, fill=False, linestyle='--', linewidth=line_width, alpha=alpha_circle))
+
+    # Midpoint base p0
+    ax.add_artist(plt.Circle([R/2, 0], 0.6*R, color=init_agent_color, fill=False, linestyle='--', linewidth=line_width, alpha=alpha_circle))
+
+    # Receiver base
+    ax.scatter(*p_recv, c=deliver_color, marker='s', label='Receiver base')
+    ax.add_artist(plt.Circle(p_recv, Rcom, color=deliver_color, fill=False, linestyle='--', linewidth=line_width, alpha=alpha_circle))
+
     # Adjust plot limits
     ax.set_xlim(-1.3*Rcom, R+1.3*Rcom)
     ax.set_ylim(-1.1*Ra, 1.1*Ra)
@@ -423,18 +459,21 @@ def plot_scenario_with_path_colored(sample, dijkstra_result, savepath=None):
 
     # Custom legend for arrows and relay points
     legend_elements = [
-        #Line2D([0], [0], color=receive_color, lw=2, label='Message retrieval'),
-        Line2D([0], [0], color=deliver_color, lw=2, label='Message delivery path'),
-        Line2D([0], [0], marker='o', color='w', label='Initial agent positions', markerfacecolor='blue', alpha=0.3)
+        Line2D([0], [0], color=deliver_color, lw=2, label='Relaying path'),
+        Line2D([0], [0], marker='o', color='w', label='Initial agent positions', markerfacecolor=init_agent_color, alpha=alpha_init_agent)
         #Line2D([0], [0], marker='o', color='w', label='Relay point', markerfacecolor='orange', markersize=8),
         #Line2D([0], [0], linestyle='--', color='k', label='Agent to relay', alpha=0.7)
     ]
     handles, labels = ax.get_legend_handles_labels()
-    ax.legend(handles + legend_elements, labels + [le.get_label() for le in legend_elements])
+    ax.legend(handles + legend_elements, labels + [le.get_label() for le in legend_elements], loc="upper left")
 
     ax.set_aspect('equal')
     ax.grid(True, linestyle='--', alpha=0.6)
-    plt.title(f"Dijkstra Baseline ($K$: {K}; Time steps: {dijkstra_result['delivery_time']})")
+    plt.title(
+        "Dijkstra Baseline\n"
+        f"($K$: {K}; Time steps: {dijkstra_result['delivery_time']}; Value: {dijkstra_result['value']:.2f})"
+    )
+
 
     if savepath:
         plt.savefig(savepath, dpi=300)
@@ -479,7 +518,7 @@ def animate_dijkstra(sample, dijkstra_result, savepath='dijkstra_animation.mp4')
         ax.clear()
         # Plot static elements
         ax.scatter(p_agents[:, 0], p_agents[:, 1], c='blue', alpha=0.3, label='Initial agent positions')
-        ax.scatter(*p_tx, c=receive_color, marker='s', label='Transmitting base $p_{tx}$')
+        ax.scatter(*p_tx, c=receive_color, marker='s', label='Transmitting base')
         ax.add_artist(plt.Circle(p_tx, Rcom, color=receive_color, fill=False, linestyle='--', alpha=0.6))
         ax.scatter(*p_recv, c=deliver_color, marker='s', label='Receiver base')
         ax.add_artist(plt.Circle(p_recv, Rcom, color=deliver_color, fill=False, linestyle='--'))
@@ -559,7 +598,7 @@ def animate_dijkstra(sample, dijkstra_result, savepath='dijkstra_animation.mp4')
     plt.close(fig)
     
 
-def animate_dijkstra_minimal(sample, dijkstra_result):
+def animate_dijkstra_minimal(sample, dijkstra_result, animation_save_path):
     R = sample['R']
     p_agents = sample['p_agents']
     p_recv = sample['p_recv']
@@ -615,23 +654,36 @@ def animate_dijkstra_minimal(sample, dijkstra_result):
         ax.set_title(f"Timestep {t}/{T_D}")
 
     ani = animation.FuncAnimation(fig, update, frames=range(T_D+1), interval=300)
-    ani.save('dijkstra_animation.gif', writer='pillow', dpi=120)
+    ani.save(animation_save_path, writer='pillow', dpi=120)
     plt.close(fig)
     
 
 
 if __name__ == '__main__':
-    K = 10
+    # Scenario parameters
+    K = 20
     Rcom = 1.0
     R = (K+4)*Rcom
     Ra = 0.6*R
-    seed=5
-    save_path = fr'Plots/dijkstra_baseline_K{K}_seed{seed}.png'
+
+    sigma = 0.1
+    beta = 0.99
+
+    seed=3
+
+    # Cost parameters
+    cost_motion = 5
+    cost_antenna = 1
+
+    # Saving stuff
+    save_path = fr'Plots/dijkstra_baseline_K{2}_seed{5}.png'
+    animation_save_path = fr'Animations/dijkstra_baseline_animation_K{K}_seed{seed}.gif'
 
     sample = sample_scenario(K=K, Rcom=Rcom, R=R, Ra=Ra, seed=seed)
-    result = dijkstra_baseline(sample['p_agents'], sample['p_tx'], sample['p_recv'], Rcom=Rcom)    
+    #plot_scenario(sample, savepath=save_path)
+    result = dijkstra_baseline(sample['p_agents'], sample['p_tx'], sample['p_recv'], Rcom=Rcom, sigma=sigma, beta=beta, c_pos=cost_motion)    
     plot_scenario_with_path_colored(sample, result, savepath=save_path)
 
     # Uncomment to generate animation
     #animate_dijkstra(sample, result, savepath='dijkstra_animation.mp4')
-    animate_dijkstra_minimal(sample, result)
+    #animate_dijkstra_minimal(sample, result, animation_save_path)
