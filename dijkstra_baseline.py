@@ -15,60 +15,71 @@ def compute_retrieval_point(pk, Rcom, p_tx=np.array([0.0, 0.0])):
         return pk
 
 def compute_relay_point(pj, ps_k, pk, pr, j_idx, Rcom):
-    # Compute unit direction u from retrieving point to receiving base
+    """
+    Compute the relay point for agent j_idx:
+    - Project pj onto the line spanned by ps_k and pr to get bar_pj.
+    - The relay point q_j lies on the segment from pj to bar_pj.
+    - If the agent can reach bar_pj before the message arrives, set q_j = bar_pj.
+    - Otherwise, set q_j somewhere along [pj, bar_pj] such that
+      norm(q_j - pj) = D + norm(q_j - ps_k) - j_idx*Rcom,
+      where D = norm(ps_k - pk).
+    """
+    # Unit direction from ps_k to pr
     u = pr - ps_k
     norm_u = np.linalg.norm(u)
-    if norm_u == 0:  # will never happen in our scenarios
+    if norm_u < 1e-12:
         u = np.zeros_like(u)
     else:
         u = u / norm_u
 
-    # Orthogonal projection of pj (relay agent j's initial position) onto line 
-    alpha_j = np.dot(pj - ps_k, u) 
-    pj_bar = ps_k + alpha_j * u  # projected point on line
+    # Project pj onto the line spanned by ps_k and pr
+    alpha = np.dot(pj - ps_k, u)
+    bar_pj = ps_k + alpha * u
 
-    # Help parameters 
-    b = np.linalg.norm(pj - pj_bar)  # distance from pj to line
-    D = np.linalg.norm(ps_k - pk)    # distance between retrieving agent and its retrieval point
-    a = np.linalg.norm(pj_bar - ps_k) - (j_idx-1)*Rcom  # distance from pj_bar to ps_k minus offset
-
-    # Condition for direct projection 
-    cond = b <= D - a  # (original equation)
-    if cond:  # relay agent can reach line in time 
-        return pj_bar
+    # Vector from pj to bar_pj
+    v = bar_pj - pj
+    v_norm = np.linalg.norm(v)
+    if v_norm < 1e-12:
+        direction = u  # fallback: use line direction
     else:
-        # Fallback: solve for q_j 
-        n = (pj - pj_bar) / (b + 1e-12)  # unit normal from line to pj
+        direction = v / v_norm
 
-        # Quadratic coefficients
-        A = 4*(b**2 - D**2)
-        B = 4*b*(D**2 + a**2 - b**2)
-        C = (D**2 + a**2 - b**2)**2 - 4*D**2*a**2
+    D = np.linalg.norm(ps_k - pk)  # distance retrieving agent to retrieval point
 
-        discriminant = B**2 - 4*A*C
-        if discriminant < 0 or A == 0:
-            return pj_bar  # fallback to projection
+    # The required distance along [pj, bar_pj]
+    # norm(q_j - pj) = D + norm(q_j - ps_k) - j_idx*Rcom
+    # Let q_j = pj + t * direction, t in [0, v_norm]
+    # norm(q_j - ps_k) = norm((pj - ps_k) + t*direction)
+    # Let a = norm(pj - ps_k)
+    # Let b = dot(pj - ps_k, direction)
+    # norm(q_j - ps_k) = sqrt(a^2 + 2*b*t + t^2)
+    # So: t = D + sqrt(a^2 + 2*b*t + t^2) - j_idx*Rcom
+    # Rearranged: t + j_idx*Rcom - D = sqrt(a^2 + 2*b*t + t^2)
+    # Square both sides:
+    # (t + j_idx*Rcom - D)^2 = a^2 + 2*b*t + t^2
+    # t^2 + 2t(j_idx*Rcom-D) + (j_idx*Rcom-D)^2 = a^2 + 2*b*t + t^2
+    # 2t(j_idx*Rcom-D) + (j_idx*Rcom-D)^2 = a^2 + 2*b*t
+    # 2t(j_idx*Rcom-D-b) = a^2 - (j_idx*Rcom-D)^2
+    # t = [a^2 - (j_idx*Rcom-D)^2] / [2*(j_idx*Rcom-D-b)]   (if denominator != 0)
 
-        t1 = (-B + np.sqrt(discriminant)) / (2*A)
-        t2 = (-B - np.sqrt(discriminant)) / (2*A)
+    a = np.linalg.norm(pj - ps_k)
+    b = np.dot(pj - ps_k, direction)
+    offset = j_idx * Rcom - D
+    denom = 2 * (offset - b)
+    numer = a**2 - offset**2
 
-        # Candidates
-        q1 = pj_bar + t1 * n
-        q2 = pj_bar + t2 * n
+    if np.abs(denom) < 1e-12:
+        t = 0.0
+    else:
+        t = numer / denom
 
-        # Admissible root: same side as pj and original equation holds
-        candidates = []
-        for t, q in zip([t1, t2], [q1, q2]):
-            if np.dot(q - pj_bar, pj - pj_bar) >= 0:
-                # Check original equation 
-                lhs = np.abs(b - t)             # distance traveled by relay agent
-                rhs = D + np.sqrt(a**2 + t**2)  # distance traveled by retrieving agent
-                if np.isclose(lhs, rhs, atol=1e-6):
-                    candidates.append(q)
-        if candidates:
-            return candidates[0]
-        else:
-            return pj_bar
+    # Clamp t to [0, v_norm]
+    t = np.clip(t, 0, v_norm)
+
+    # Compute relay point
+    q_j = pj + t * direction
+
+    return q_j
 
 def dijkstra_baseline(p_agents, p_tx, p_recv, Rcom=1.0, sigma=0.1, beta=0.99, c_pos=0.1):
     K = p_agents.shape[0]
@@ -99,8 +110,29 @@ def dijkstra_baseline(p_agents, p_tx, p_recv, Rcom=1.0, sigma=0.1, beta=0.99, c_
         Gk.add_node('s_k', pos=ps_k)
         Gk.add_node('r', pos=pr)
 
-        # Add relay agents
+        # Direction vector from retrieval point to receiver
+        direction = pr - ps_k
+        norm_dir = np.linalg.norm(direction)
+        if norm_dir < 1e-12:
+            direction = np.zeros_like(direction)
+        else:
+            direction = direction / norm_dir
+
+        # Sort other agents by their projection onto the line from ps_k to pr
+        agent_alphas = []
         for j in I:
+            if j == k:
+                continue
+            pj = p_agents[j]
+            # Project agent onto the line from ps_k to pr
+            alpha = np.dot(pj - ps_k, direction)
+            if alpha >= 0:
+                agent_alphas.append((j, alpha))
+        # Sort by increasing alpha (distance along the line from ps_k)
+        sorted_agents = [j for j, alpha in sorted(agent_alphas, key=lambda x: x[1])]
+
+        # Add relay agents
+        for j in sorted_agents:
 
             # No need to add retrieving agent again
             if j == k:  
@@ -535,202 +567,124 @@ def plot_scenario_with_path_colored(sample, dijkstra_result, savepath=None):
     #plt.show()
 
 
-def animate_scenario_with_path_colored(sample, dijkstra_result, savepath=None):
-    R = sample['R']
-    Rmin = sample['Rmin']
-    Rmax = sample['Rmax']
+def animate_scenario_with_path_colored(sample, dijkstra_result, savepath=None, interval=100):
+    import matplotlib.pyplot as plt
+    import matplotlib.animation as animation
+
     p_agents = sample['p_agents']
-    p_recv = sample['p_recv']
-    p0 = sample['p0']
-    p_tx = sample['p_tx']
-    Rcom = sample['Rcom']
-    Ra = sample['Ra']
-
-    agent_color = "orange"
-    init_agent_color = "grey"
-    receive_color = "blue"
-    deliver_color = "green"
-    passive_color = "red"
-    alpha_circle = 0.6
-    alpha_init_agent = 0.6
-    line_width = 3
-    marker_size = 100
-
-    # For animation
-    T = dijkstra_result['delivery_time']
-    agent_start_times = dijkstra_result['agent_start_times']
-    agent_stop_times = dijkstra_result['agent_stop_times']
+    K = p_agents.shape[0]
+    t_start_k = dijkstra_result['agent_start_times']
+    t_stop_k = dijkstra_result['agent_stop_times']
     relay_points = dijkstra_result['relay_points']
     relaying_agents = dijkstra_result['relaying_agents']
-    km = dijkstra_result['retrieving_agent']
-    ps_k = compute_retrieval_point(p_agents[km], sample['Rcom'])
+    retrieving_agent = dijkstra_result['retrieving_agent']
 
-    # Precompute agent trajectories
-    agent_traj = []
-    for k in range(len(p_agents)):
-        if k == km:
-            # Retrieving agent: two-segment path
-            waypoints = [p_agents[k], ps_k]
-            if relaying_agents:
-                # Move to first relay point
-                first_relay = relaying_agents[0]
-                relay_dest = relay_points[first_relay]
-            else:
-                # Move to receiver Rcom
-                direction = p_recv - ps_k
-                norm = np.linalg.norm(direction)
-                if norm > 1e-8:
-                    direction = direction / norm
-                    relay_dest = p_recv - direction * Rcom
-                else:
-                    relay_dest = ps_k
-            waypoints.append(relay_dest)
-            agent_traj.append(waypoints)
+    # For each agent, get its destination (relay point if relaying, else initial pos)
+    destinations = []
+    for k in range(K):
+        if k == retrieving_agent:
+            dest = compute_retrieval_point(p_agents[k], sample['Rcom'])
         elif k in relay_points:
-            agent_traj.append([p_agents[k], relay_points[k]])
+            dest = relay_points[k]
         else:
-            agent_traj.append([p_agents[k]])
+            dest = p_agents[k]
+        destinations.append(dest)
+    destinations = np.array(destinations)
+
+    # Compute total number of frames (one per time step)
+    T = int(np.max(t_stop_k)) + 2
+    T_D = T - 1  # Maximum number of time steps
+
+    R = sample['R']
+    Rcom = sample['Rcom']
+    Ra = sample['Ra']
+    p_tx = sample['p_tx']
+    p_recv = sample['p_recv']
 
     fig, ax = plt.subplots(figsize=(6, 6))
 
-    def update(t):
-        ax.clear()
-        # Plot static elements (bases, circles, etc.)
-        ax.scatter(*p_tx, c=receive_color, marker='s', s=marker_size, label='TX base')
-        ax.add_artist(plt.Circle(p_tx, Rcom, color=receive_color, fill=False, linestyle='--', linewidth=line_width, alpha=alpha_circle))
-        ax.add_artist(plt.Circle([R/2, 0], 0.6*R, color=init_agent_color, fill=False, linestyle='--', linewidth=line_width, alpha=alpha_circle))
-        ax.scatter(*p_recv, c=deliver_color, marker='s', s=marker_size, label='RX base')
-        ax.add_artist(plt.Circle(p_recv, Rcom, color=deliver_color, fill=False, linestyle='--', linewidth=line_width, alpha=alpha_circle))
+    # --- Static elements ---
+    # Bases and circles
+    ax.scatter(*p_tx, c='blue', marker='s', s=100, label='TX base')
+    ax.add_artist(plt.Circle(p_tx, Rcom, color='blue', fill=False, linestyle='--', alpha=0.6))
+    ax.scatter(*p_recv, c='green', marker='s', s=100, label='RX base')
+    ax.add_artist(plt.Circle(p_recv, Rcom, color='green', fill=False, linestyle='--', alpha=0.6))
+    ax.add_artist(plt.Circle([R/2, 0], 0.6*R, color='grey', fill=False, linestyle='--', alpha=0.3))
 
-        # Dashed line from retrieval point to Rcom of receiver
-        direction = p_recv - ps_k
-        norm = np.linalg.norm(direction)
-        if norm > 1e-8:
-            direction = direction / norm
-            end_point = p_recv - direction * Rcom
-            ax.plot([ps_k[0], end_point[0]], [ps_k[1], end_point[1]],
-                    c=init_agent_color, linestyle='--', linewidth=line_width, alpha=0.6, zorder=1)
+    # Initial agent positions
+    ax.scatter(p_agents[:, 0], p_agents[:, 1], c='grey', alpha=0.3, s=100, label='Init pos')
 
-        # Plot relay points and their Rcom circles (always on top)
-        for idx, relay in relay_points.items():
-            if idx == km:
-                continue
-            if idx in relaying_agents:
-                ax.scatter(relay[0], relay[1], c=agent_color, alpha=1.0, marker='o', s=marker_size, zorder=20)
-                circle = plt.Circle(relay, Rcom, color=agent_color, fill=False, linestyle='--', linewidth=line_width, alpha=alpha_circle, zorder=2)
-                ax.add_artist(circle)
-            else:
-                ax.scatter(relay[0], relay[1], c=passive_color, alpha=1.0, marker='o', s=marker_size, zorder=20)
+    # Rcom circles around each agent
+    for agent_pos in p_agents:
+        ax.add_artist(plt.Circle(agent_pos, Rcom, color='grey', fill=False, linestyle='--', alpha=0.4))
 
-        # Plot initial agent positions (always on top)
-        ax.scatter(p_agents[:, 0], p_agents[:, 1], c=init_agent_color, alpha=alpha_init_agent, s=marker_size, zorder=21)
+    # Relay points and their Rcom circles
+    for idx, relay in relay_points.items():
+        if idx == retrieving_agent:
+            continue
+        if idx in relaying_agents:
+            ax.scatter(relay[0], relay[1], c='orange', alpha=1.0, marker='o', s=100, zorder=20)
+            ax.add_artist(plt.Circle(relay, Rcom, color='orange', fill=False, linestyle='--', linewidth=2, alpha=0.6, zorder=2))
+        else:
+            ax.scatter(relay[0], relay[1], c='red', alpha=1.0, marker='o', s=100, zorder=20)
 
-        # Plot agent positions at time t
-        for k in range(len(p_agents)):
-            t_start = agent_start_times[k]
-            t_stop = agent_stop_times[k]
-            waypoints = agent_traj[k]
-            if len(waypoints) == 1:
-                pos = waypoints[0]
-            elif k == km:
-                # Two-segment motion for retrieving agent
-                # First segment: to retrieval point
-                seg1_len = np.linalg.norm(waypoints[1] - waypoints[0])
-                seg2_len = np.linalg.norm(waypoints[2] - waypoints[1])
-                total_len = seg1_len + seg2_len
-                total_time = t_stop - t_start
-                if t < t_start:
-                    pos = waypoints[0]
-                elif t >= t_stop:
-                    pos = waypoints[2]
-                else:
-                    # Compute how far along the path the agent should be
-                    frac = (t - t_start) / max(1, total_time)
-                    dist = frac * total_len
-                    if dist <= seg1_len:
-                        # On first segment
-                        pos = waypoints[0] + (waypoints[1] - waypoints[0]) * (dist / seg1_len)
-                    else:
-                        # On second segment
-                        pos = waypoints[1] + (waypoints[2] - waypoints[1]) * ((dist - seg1_len) / seg2_len)
-            else:
-                # One-segment motion for other agents
-                start, end = waypoints
-                if t < t_start:
-                    pos = start
-                elif t >= t_stop:
-                    pos = end
-                else:
-                    frac = (t - t_start) / max(1, t_stop - t_start)
-                    pos = start + frac * (end - start)
-            ax.scatter(pos[0], pos[1], c='black', s=80, alpha=1.0, zorder=30)
+    # --- Animation elements ---
+    agent_dots = ax.scatter([], [], c='orange', s=100, label='Current pos', zorder=30)
+    relay_arrows = []
+    for _ in relaying_agents:
+        arrow = ax.annotate("", xy=(0,0), xytext=(0,0),
+                            arrowprops=dict(arrowstyle="->", color='grey', lw=2, alpha=0.7))
+        relay_arrows.append(arrow)
+    retrieving_arrow = ax.annotate("", xy=(0,0), xytext=(0,0),
+                                   arrowprops=dict(arrowstyle="->", color='green', lw=2, alpha=0.9))
 
-        # Connect initial agent positions to their relay points with dashed lines (no arrow)
-        for idx, relay in relay_points.items():
-            agent_pos = p_agents[idx]
-            ax.plot(
-                [agent_pos[0], relay[0]],
-                [agent_pos[1], relay[1]],
-                color=init_agent_color,
-                lw=line_width,
-                alpha=alpha_init_agent,
-                linestyle='--',
-                zorder=5
-            )
+    def get_agent_pos(k, t):
+        if t < t_start_k[k]:
+            return p_agents[k]
+        elif t >= t_stop_k[k]:
+            return destinations[k]
+        else:
+            frac = (t - t_start_k[k]) / max(1, t_stop_k[k] - t_start_k[k])
+            return p_agents[k] + frac * (destinations[k] - p_agents[k])
 
-        # Message delivery arrows along Dijkstra path (km -> ... -> r)
-        path = dijkstra_result['path']
-        last_meet_point = None
-        for i in range(len(path)-1):
-            node_from = path[i]
-            node_to = path[i+1]
-            def get_plot_pos(node):
-                if isinstance(node, int) and node in relay_points:
-                    return relay_points[node]
-                elif node == 's_k':
-                    return ps_k
-                elif node == 'r':
-                    return p_recv
-                else:
-                    return p_agents[node]
-            start = get_plot_pos(node_from)
-            end = get_plot_pos(node_to)
-            if isinstance(node_to, int) and node_to in relay_points:
-                direction = relay_points[node_to] - start
-                norm = np.linalg.norm(direction)
-                if norm > Rcom + 1e-8:
-                    direction = direction / norm
-                    end = relay_points[node_to] - direction * sample['Rcom']
-                    ax.annotate("", xy=end, xytext=start,
-                                arrowprops=dict(arrowstyle="->", color=deliver_color, lw=line_width))
-            elif node_to == 'r':
-                direction = p_recv - start
-                norm = np.linalg.norm(direction)
-                if norm > Rcom + 1e-8:
-                    direction = direction / norm
-                    end = p_recv - direction * sample['Rcom']
-                    last_meet_point = end
-                    ax.annotate("", xy=end, xytext=start,
-                                arrowprops=dict(arrowstyle="->", color=deliver_color, lw=line_width))
-            else:
-                norm = np.linalg.norm(end - start)
-                if norm > Rcom + 1e-8:
-                    ax.annotate("", xy=end, xytext=start,
-                                arrowprops=dict(arrowstyle="->", color=deliver_color, lw=line_width))
+    def animate(t):
+        # Update agent positions
+        current_pos = np.zeros_like(p_agents)
+        for k in range(K):
+            current_pos[k] = get_agent_pos(k, t)
+        agent_dots.set_offsets(current_pos)
 
-        # Plot the relaying point where the last agent meets Rcom of the receiving base
-        if last_meet_point is not None:
-            ax.scatter(last_meet_point[0], last_meet_point[1], c=agent_color, marker='o', s=marker_size, zorder=25)
+        # Update relay arrows
+        for idx, k in enumerate(relaying_agents):
+            start = p_agents[k]
+            end = get_agent_pos(k, t)
+            relay_arrows[idx].set_position((0,0))
+            relay_arrows[idx].xy = end
+            relay_arrows[idx].xytext = start
 
-        ax.set_xlim(-0.2*Ra, R+0.2*Ra)
-        ax.set_ylim(-1.1*Ra, 1.1*Ra)
-        ax.set_aspect('equal')
-        ax.grid(True, linestyle='--', alpha=0.6)
-        ax.set_title(f"Timestep {t}/{T}")
+        # Update retrieving agent arrow
+        start = p_agents[retrieving_agent]
+        end = get_agent_pos(retrieving_agent, t)
+        retrieving_arrow.set_position((0,0))
+        retrieving_arrow.xy = end
+        retrieving_arrow.xytext = start
 
-    ani = animation.FuncAnimation(fig, update, frames=range(dijkstra_result['delivery_time']+1), interval=300)
+        ax.set_title(f"t = {t} / {T_D}")
+
+        return [agent_dots] + relay_arrows + [retrieving_arrow]
+
+    ax.set_xlim(-0.2*Ra, R+0.2*Ra)
+    ax.set_ylim(-1.1*Ra, 1.1*Ra)
+    ax.set_aspect('equal')
+    ax.grid(True, linestyle='--', alpha=0.6)
+    ax.legend()
+
+    ani = animation.FuncAnimation(
+        fig, animate, frames=T, interval=interval, blit=False, repeat=False
+    )
+
     if savepath:
-        ani.save(savepath, writer='pillow', dpi=120)
+        ani.save(savepath, writer='pillow', fps=1000//interval)
     else:
         plt.show()
 
@@ -752,11 +706,11 @@ if __name__ == '__main__':
     cost_antenna = 1
 
     # Saving stuff
-    save_path = fr'Plots/dijkstra_baseline_K{K}_seed{seed}.png'
+    save_path = fr'Plots/dijkstra_baseline_K{3}_seed{1}.png'
     animation_save_path = fr'Animations/dijkstra_baseline_animation_K{K}_seed{seed}.gif'
 
     sample = sample_scenario(K=K, Rcom=Rcom, R=R, Ra=Ra, seed=seed)
     #plot_scenario(sample, savepath=save_path)
     result = dijkstra_baseline(sample['p_agents'], sample['p_tx'], sample['p_recv'], Rcom=Rcom, sigma=sigma, beta=beta, c_pos=cost_motion)    
-    plot_scenario_with_path_colored(sample, result, savepath=save_path)
-    #animate_scenario_with_path_colored(sample, result, savepath=animation_save_path)
+    #plot_scenario_with_path_colored(sample, result, savepath=save_path)
+    animate_scenario_with_path_colored(sample, result, savepath=animation_save_path)
