@@ -277,7 +277,7 @@ class Info_relay_env(ParallelEnv):
     #     return positions   
     
     
-    def generate_entity_positions(self, np_random, base_positions, radius, n_entities):
+    def generate_agent_positions(self, np_random, base_positions, radius, n_entities):
         """
         Generate positions for agents inside a circular disk with a certain radius. 
         The center of the disk is the the middlepoint of the bases.  
@@ -286,7 +286,7 @@ class Info_relay_env(ParallelEnv):
     
         self.center = np.mean(base_positions, axis=0)  # Midpoint of bases
         for i in range(n_entities):
-            radius_agent = np_random.uniform(0, radius)  # Random radius
+            radius_agent = np.sqrt(np_random.uniform(0, 1)) * radius  # Random radius
             angle = np_random.uniform(0, 2 * np.pi)  # Random angle
             offset = np.array([radius_agent * np.cos(angle), radius_agent * np.sin(angle)])  # Convert to Cartesian
             positions.append(self.center + offset)
@@ -342,7 +342,7 @@ class Info_relay_env(ParallelEnv):
         radius = self.radius*1.5
         #radius = self.radius
 
-        agent_positions = self.generate_entity_positions(np_random, base_positions, radius, self.n_agents)
+        agent_positions = self.generate_agent_positions(np_random, base_positions, radius, self.n_agents)
 
         for i, agent in enumerate(world.agents):
             #agent.state.p_pos = np.array(world.bases[0].state.p_pos) # all starts at the first base
@@ -355,7 +355,7 @@ class Info_relay_env(ParallelEnv):
             # initiate the message_buffer so that it always has the same size
             agent.message_buffer = False
 
-        emitter_positions = self.generate_entity_positions(np_random, base_positions, radius, self.num_emitters)
+        emitter_positions = self.generate_agent_positions(np_random, base_positions, radius, self.num_emitters)
 
         for i, emitter in enumerate(world.emitters):
             #agent.state.p_pos = np.array(world.bases[0].state.p_pos) # all starts at the first base
