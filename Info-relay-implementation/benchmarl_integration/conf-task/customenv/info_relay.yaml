@@ -13,12 +13,8 @@ num_messages: 1
 
 random_base_pose: True # makes the game easier if turned off
 
-rotate_coord_sys: False # if true preprocesses the state before imputing it to NN - easier to learn the solution
-
 antenna_used: False
-deleting_used: False
 
 observe_self: True # OBS change
 
-use_action_masking: True 
 
