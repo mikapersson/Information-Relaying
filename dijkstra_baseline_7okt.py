@@ -34,46 +34,39 @@ def compute_relay_point(pj, ps_k, pk, pr, j_k, Rcom):
     # Projection of pj onto the line (pmeet_j)
     bar_pj = ps_k + np.dot(pj - ps_k, u) * u
 
-    c = np.linalg.norm(ps_k - pk)
-    a = np.linalg.norm(bar_pj - ps_k) - j_k*Rcom
     a = np.linalg.norm(bar_pj - pj)
+    c = np.linalg.norm(ps_k - pk)
+    d = np.linalg.norm(bar_pj - ps_k)
+    #a = np.linalg.norm(bar_pj - ps_k) - j_k*Rcom
 
-    # Condition for using the projection point
-    if a <= c + max(0, np.linalg.norm(bar_pj - ps_k) - j_k*Rcom):
+    # Condition for using the projection point (agent makes it to its projection before the message does)
+    if a <= c + max(0, d - j_k*Rcom):  # lambda <= 0
         return bar_pj
 
-    # Otherwise, solve for q_j = bar_pj + t*n
-    # n = unit normal from line to pj
+    # Agent doesn't make it to its projection before the message does
+    # v = unit normal from line to pj
     diff = pj - bar_pj
     norm_diff = np.linalg.norm(diff)
     if norm_diff < 1e-12:
         # pj is on the line, but can't reach bar_pj in time, so just return bar_pj
         return bar_pj
-    n = diff / norm_diff
+    v = diff / norm_diff
 
-    # Quadratic coefficients
-    D2 = c**2
-    a2 = a**2
-    b2 = a**2
-    A = 4 * (b2 - D2)
-    B = 4 * a * (D2 + a2 - b2)
-    C = (D2 + a2 - b2)**2 - 4 * D2 * a2
-
-    # Solve quadratic
-    disc = B**2 - 4*A*C
-    if disc < 0:
-        raise ValueError("No real solution for relay point")
-    sqrt_disc = np.sqrt(disc)
-    t1 = (-B + sqrt_disc) / (2*A)
-    t2 = (-B - sqrt_disc) / (2*A)
-
-    # Choose the root that is in the direction of pj from bar_pj
-    q1 = bar_pj + t1 * n
-    q2 = bar_pj + t2 * n
-    if np.dot(q1 - bar_pj, pj - bar_pj) >= 0:
-        return q1
-    else:
-        return q2
+    # Test lambda = a - c
+    lam = a - c  # if lambda <= 0, relaying agent reaches bar_pj before the message does
+    if lam >= 0 and np.sqrt(d**2 + lam**2) <= j_k*Rcom:  
+        qj = bar_pj + lam * v
+        return qj
+    else:  
+        A = a - c + j_k*Rcom 
+        if np.isclose(A, 0):
+            return bar_pj
+            #raise ValueError("Relay point computation error: A is zero")
+        else:
+            lam = (A**2 - d**2) / (2*A)
+            if lam >= 0 and np.sqrt(d**2 + lam**2) > j_k*Rcom:
+                qj = bar_pj + lam * v
+                return qj
     
 
 def sample_capsule_point(R, Rcom, rng):
@@ -223,11 +216,11 @@ def dijkstra_baseline(p_agents, p_tx, p_recv, Rcom=1.0, sigma=0.1, beta=0.99, c_
 
     # Find relaying agents in optimal path (excluding retrieving agent and bases)
     relaying_agents = [n for n in best_path if isinstance(n, int) and n != best_k]
-    k_D = len(relaying_agents)                 # number of relaying agents
+    k_D = len(relaying_agents)                 # number of relaying agents 
     T_M = int(np.ceil(best_distance / sigma))  # movement time
     T_D = T_M + k_D + 2                        # total delivery time
 
-    # Compute per-agent distances and movement times
+    # Compute per-agent distances and movement times (used for the value computation AND animation)
     D_k = np.zeros(K)
     t_start_k = np.zeros(K, dtype=int)
     t_stop_k = -1*np.ones(K, dtype=int)  # -1 means agent does not move
@@ -264,6 +257,20 @@ def dijkstra_baseline(p_agents, p_tx, p_recv, Rcom=1.0, sigma=0.1, beta=0.99, c_
         else:  # last relay agent
             D_k[k] = np.linalg.norm(relay_point - p_agents[k]) \
                 + max(0, np.linalg.norm(p_recv - relay_point) - Rcom)
+            
+    # Sanity check, no active agent has reached its relay point before the message could have (excluding air distance for the message)
+    if debug:
+        for idx, k in enumerate(relaying_agents):
+            message_distance = np.linalg.norm(best_graph.nodes['s_k']['pos'] - p_agents[best_k]) + \
+            max(0, np.linalg.norm(best_relay_points[relaying_agents[0]] - best_graph.nodes['s_k']['pos']) - Rcom)
+            if idx > 0:
+                message_distance += sum(
+                    max(0, np.linalg.norm(best_relay_points[relaying_agents[i]] - best_relay_points[relaying_agents[i-1]]) - Rcom) for i in range(idx)  # distance to next relay agent
+                )
+
+            if np.linalg.norm(best_relay_points[k] - p_agents[k]) > message_distance:
+                diff = np.linalg.norm(best_relay_points[k] - p_agents[k]) - message_distance
+                print(f"Warning: relaying agent {k} could have reached its relay point before the message could have (relay agent moves {diff} further than message)")
             
     # Movement times
     for idx, k in enumerate(relaying_agents):
@@ -512,6 +519,10 @@ def plot_scenario_with_path_colored(sample, dijkstra_result, savepath=None, jamm
             relay_contact = end - direction * sample['Rcom']
             ax.scatter(relay_contact[0], relay_contact[1], c=agent_color, marker='o', s=marker_size)
 
+    if debug:  # annotate the agent indices
+        for i, pos in enumerate(p_agents):
+            ax.text(pos[0], pos[1], str(i), color='black', fontsize=12, ha='center', va='center')
+
     # Plot the retrieval points
     #ax.scatter(ps_k[0], ps_k[1], c=agent_color, marker='o')
 
@@ -653,13 +664,18 @@ def plot_scenario_with_path_colored(sample, dijkstra_result, savepath=None, jamm
 
 
     if savepath:
+        # If folder doesn't exist, create it
+        folder = os.path.dirname(savepath)
+        if not os.path.exists(folder):
+            os.makedirs(folder)
+
         plt.savefig(savepath, dpi=300)
     plt.show()
 
 
-def animate_scenario_with_path_colored(sample, dijkstra_result, savepath=None, interval=100):
+def animate_scenario_with_path_colored(sample, dijkstra_result, savepath=None, beamer_gif=False, interval=100):
     
-    if savepath:
+    if savepath and beamer_gif:
         png_folder = savepath[:-4] + "_frames" 
         if not os.path.exists(png_folder):
             os.makedirs(png_folder)
@@ -952,7 +968,7 @@ def animate_scenario_with_path_colored(sample, dijkstra_result, savepath=None, i
         ax.set_title(f"Dijkstra Baseline\n ($K$: {K}; Time: {t} / {max(int(np.max(t_stop_k)+1), T_D)} Value: {dijkstra_result['value']:.2f})")
         
         # Save PNG snapshot if requested
-        if savepath is not None:
+        if savepath is not None and beamer_gif:
             fname = os.path.join(png_folder, f"frame_{t:04d}.png")
             plt.savefig(fname, dpi=150)
 
@@ -984,40 +1000,42 @@ def animate_scenario_with_path_colored(sample, dijkstra_result, savepath=None, i
 
 
 if __name__ == '__main__':
-    debug = False
+    debug = True
 
     # Scenario parameters
-    K = 5  # something weird with K=3 seed=1  (weird meetup point for retrieving agent and first relay agent)
-    Rcom = 1.0
-    R = (K+4)*Rcom
-    Ra = 0.6*R
+    K = 4  # something weird with K=3 seed=1  (weird meetup point for retrieving agent and first relay agent)
+    for K in range(15,31,5):
+        Rcom = 1.0
+        R = (K+4)*Rcom
+        Ra = 0.6*R
 
-    sigma = 0.1
-    beta = 0.99
+        sigma = 0.1
+        beta = 0.99
 
-    directed = False
-    jammer = True
+        directed = False
+        jammer = True
 
-    seed=1
+        seed=1
 
-    # Cost parameters
-    cost_motion = 5
-    cost_antenna = 1
+        # Cost parameters
+        cost_motion = 5
+        cost_antenna = 1
 
-    # Saving stuff
-    plot_folder = "Plots"
-    init_fig_folder = "Initial_states"
-    dijk_fig_folder = "Dijkstra_plots"
-    anim_folder = "Animations"
-    file_name = fr"dijkstra_baseline_K{K}_seed{seed}"
+        # Saving stuff
+        plot_folder = "Plots"
+        init_fig_folder = "Initial_states"
+        dijk_fig_folder = "Dijkstra_plots"
+        anim_folder = "Animations"
+        file_name = fr"dijkstra_baseline_K{K}_seed{seed}"
 
-    #save_path = None
-    init_save_path = os.path.join(plot_folder, init_fig_folder, file_name+'_init'+'.png') 
-    dijkstra_save_path = os.path.join(plot_folder, dijk_fig_folder, file_name+'.png') 
-    animation_save_path = os.path.join(anim_folder, file_name+'.gif')
+        #save_path = None
+        init_save_path = os.path.join(plot_folder, init_fig_folder, file_name+'_init'+'.png') 
+        dijkstra_save_path = os.path.join(plot_folder, dijk_fig_folder, file_name+'.png') 
+        animation_save_path = os.path.join(anim_folder, file_name+'.gif')
+        beamer_gif = False
 
-    sample = sample_scenario(K=K, Rcom=Rcom, R=R, Ra=Ra, sigma=sigma, seed=seed)
-    #plot_scenario(sample, directed=directed, jammer=jammer, savepath=init_save_path)
-    result = dijkstra_baseline(sample['p_agents'], sample['p_tx'], sample['p_recv'], Rcom=Rcom, sigma=sigma, beta=beta, c_pos=cost_motion, jammer=jammer)    
-    #plot_scenario_with_path_colored(sample, result, savepath=dijkstra_save_path, jammer=jammer, debug=debug)
-    animate_scenario_with_path_colored(sample, result, savepath=animation_save_path)
+        sample = sample_scenario(K=K, Rcom=Rcom, R=R, Ra=Ra, sigma=sigma, seed=seed)
+        #plot_scenario(sample, directed=directed, jammer=jammer, savepath=init_save_path)
+        result = dijkstra_baseline(sample['p_agents'], sample['p_tx'], sample['p_recv'], Rcom=Rcom, sigma=sigma, beta=beta, c_pos=cost_motion, jammer=jammer)    
+        #plot_scenario_with_path_colored(sample, result, savepath=dijkstra_save_path, jammer=jammer, debug=debug)
+        animate_scenario_with_path_colored(sample, result, savepath=animation_save_path, beamer_gif=beamer_gif)
