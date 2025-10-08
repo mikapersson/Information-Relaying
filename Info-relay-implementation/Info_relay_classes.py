@@ -1,3 +1,5 @@
+from copy import copy
+import math
 import numpy as np
 
 from dataclasses import dataclass, field
@@ -12,12 +14,19 @@ class EntityState:  # physical/external base state of all entities
     def __init__(self):
         # physical position
         self.p_pos = None 
+        self.p_pos_history = []
+        self.p_history_max_length = 25
         # physical velocity
         self.p_vel = None
         # communication utterance
         self.c = None # OBS init all agent with the same (ID)!!!
         # transmitting if True, listening if False. 
         #self.sending = False # obs kalla denna self.c som i envet? eller kanske modda envet?
+
+    def save_history(self):
+        self.p_pos_history.append(copy(self.p_pos))
+        while (len(self.p_pos_history) > self.p_history_max_length):
+            self.p_pos_history.pop(0)
 
 
 class DroneState(EntityState):  # state of agents (including communication and internal/mental state)
@@ -82,6 +91,8 @@ class Entity:  # properties and state of physical world entity
 
         self.transmit_power = 0.5625 # in SNR calculation
 
+        self.current_jamming_factor = 0.
+
         self.internal_noise = 1 # internal noise for SNR calculation
 
         self.message_buffer = [] # enteties that communicate all have a storage of messages
@@ -128,11 +139,38 @@ class Emitter(Entity): # always transmitting - taking no actions (atleast yet)
         self.blind = True # the emitters do not listen
         self.movable = True
         self.action = DroneAction()
-        self.generate_action()
 
-    def generate_action(self):
+    def check_boundary(base_positions, sample_position, transmission_radius):
+        """
+            Return False if jammer is out of bounds.
+            Otherwise False
+        """
+        out_of_bounds = True
+        if (base_positions[0][0] < sample_position[0] < base_positions[1][0] and
+            -1.5 * transmission_radius < sample_position[1] < 1.5 * transmission_radius):
+            # Within rectangle
+            out_of_bounds = False
+
+        for base_position in base_positions:
+            if (np.linalg.norm(base_position - sample_position) < 1.5 * transmission_radius):
+                out_of_bounds = False
+
+        return out_of_bounds
+
+    def generate_action(self, R):
+        # Rejection sampling
         while self.action.u is None or np.linalg.norm(self.action.u) == 0:
-            self.action.u = np.array([float(np.random.randint(-1,2)), float(np.random.randint(-1,2))])
+            
+            towards_center = np.array([R / 2, 0]) - self.state.p_pos
+            # No idea why it inverts at some point..
+            self.action.u = - towards_center / np.linalg.norm(towards_center)
+            direction_offset = np.random.uniform( -math.pi / 2, math.pi / 2)
+            print("direction offset: ", direction_offset)
+            rotation_matrix = np.array([[np.cos(direction_offset), - np.sin(direction_offset)],
+                                        [np.sin(direction_offset) , np.cos(direction_offset)]])
+
+            self.action.u = rotation_matrix @ self.action.u
+
         else:
             # Reverse direction
             self.action.u = self.action.u*-1
@@ -191,9 +229,9 @@ class World:  # multi-agent world
         self.agents = [] # OBS change to drones later?? or keep as agents?
         self.bases = []
         self.emitters = []
-        self.center = None
+        self.base_positions = None
+        self.transmission_radius = None
         self.R = None # Distance between bases
-        self.max_allowed_emitter_distance = 0.75
         # communication channel dimensionality (we only have destination??)
         self.dim_c = 0
         # position dimensionality
@@ -241,10 +279,8 @@ class World:  # multi-agent world
             agent.action = agent.action_callback(agent, self)
 
         for emitter in self.emitters:
-            dist = np.linalg.norm(emitter.state.p_pos - self.center)
-            normalized_dist = dist / self.R  # Normalize relative to base distance
-            if normalized_dist > self.max_allowed_emitter_distance:
-                emitter.generate_action()
+            if Emitter.check_boundary(self.base_positions, emitter.state.p_pos, self.transmission_radius):
+                emitter.generate_action(self.R)
 
         for i, agent in enumerate(self.agents):
             # used to check correct init (uniqe) id's for all agents
@@ -254,7 +290,6 @@ class World:  # multi-agent world
         for emitter in self.emitters:
             #velocity = np.array([1.0, 1.0])
             theta = 0.
-
             self.apply_process_model_2_drones(emitter, emitter.action.u[:2], theta)
 
     # NOT USED?

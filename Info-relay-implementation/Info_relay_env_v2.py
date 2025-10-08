@@ -56,7 +56,7 @@ alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 class Info_relay_env(ParallelEnv):
     metadata = {
         "name": "Info_relay_v2",
-        "render_fps": 1
+        "render_fps": 2
     }
 
     def __init__(self, num_agents = 1, num_bases = 2, num_emitters = 1, world_size = 1,
@@ -190,6 +190,7 @@ class Info_relay_env(ParallelEnv):
 
         self.transmission_radius_bases = self.calculate_transmission_radius(self.world.bases[0])
         self.transmission_radius_drones = self.calculate_transmission_radius(self.world.agents[0])
+        self.world.transmission_radius = self.transmission_radius_bases
 
         self.recived_messages_bases = [] # an attribute that keeps track of all messages recieved by bases THIS timestep    
 
@@ -244,22 +245,11 @@ class Info_relay_env(ParallelEnv):
         return world
 
     # TODO - remove
-    def generate_base_positions(self, np_random, radius):
+    def generate_base_positions(self, R):
         """Generate random base positions with equal spacing.
         Used in reset_world to place bases."""
-        # Generate evenly spaced points on a circle
-        angles = np.linspace(0, 2 * np.pi, self.num_bases, endpoint=False)
-
-        if self.random_base_pose:
-        # Randomly rotate the formation
-            random_rotation = np_random.uniform(0, 2 * np.pi)
-            angles += random_rotation
         
-        positions = np.stack([radius * np.cos(angles), radius * np.sin(angles)], axis=1)
-
-        # Randomly shift within bounds
-        #shift = np_random.uniform(-self.world_size/2, self.world_size/2, size=(1, 2))
-        #positions += shift
+        positions = np.array([[0.0, 0.0], [R, 0.0]])
 
         return positions  
         
@@ -277,21 +267,49 @@ class Info_relay_env(ParallelEnv):
     #     return positions   
     
     
-    def generate_entity_positions(self, np_random, base_positions, radius, n_entities):
+    def generate_agent_positions(self, np_random, base_positions, spawn_radius, n_entities):
         """
         Generate positions for agents inside a circular disk with a certain radius. 
         The center of the disk is the the middlepoint of the bases.  
         """
         positions = []
     
-        self.center = np.mean(base_positions, axis=0)  # Midpoint of bases
+        center = np.mean(base_positions, axis=0)  # Midpoint of bases
         for i in range(n_entities):
-            radius_agent = np_random.uniform(0, radius)  # Random radius
+            radius_agent = np.sqrt(np_random.uniform(0, 1)) * spawn_radius  # Random radius
             angle = np_random.uniform(0, 2 * np.pi)  # Random angle
             offset = np.array([radius_agent * np.cos(angle), radius_agent * np.sin(angle)])  # Convert to Cartesian
-            positions.append(self.center + offset)
+            positions.append(center + offset)
 
         return np.array(positions)
+    
+    def generate_jammer_positions(self, np_random, base_positions, n_entities, transmission_radius):
+        """
+        Generate positions for jammers inside a geometric shape consisting of a rectangle with height 3 * Rcom and width R,
+        flanked on its right and left sides by semicircles of radius 1.5 * Rcom. The left and right semicircles are centered
+        at the positions of the transmitting and receiving bases, respectively.
+
+        Assumes that that the bases lay on the x-axis
+        """
+
+        print("base positions: ", base_positions)
+
+        positions = []
+
+        for i in range(n_entities):
+
+            reject_sample = True
+            while reject_sample:
+                x_pos = np_random.uniform(base_positions[0][0] - 1.5*transmission_radius, base_positions[1][0] + 1.5*transmission_radius)
+                y_pos = np_random.uniform(base_positions[0][1] - 1.5*transmission_radius, base_positions[0][1] + 1.5*transmission_radius)
+
+                position = np.array([x_pos, y_pos])
+
+                reject_sample = Emitter.check_boundary(base_positions, position, transmission_radius)
+
+            positions.append(position)
+
+        return positions
     
     def reset_world(self, world, np_random): # np_ranodm should be some sort of seed for reproducability
         """
@@ -304,14 +322,14 @@ class Info_relay_env(ParallelEnv):
             emitter.state.p_vel = np.zeros(world.dim_p)
 
         world.message_ID_counter = 0 # resets the message_ID counter
-        self.radius = self.calculate_transmission_radius(self.world.bases[0]) * (self.n_agents + 1)/2 
+    
+        self.R_half = np_random.uniform(self.transmission_radius_bases * self.n_agents, self.transmission_radius_bases * (self.n_agents + 4))/2
+        self.R = self.R_half * 2
         if self.num_bases == 3:
-            self.radius = self.calculate_transmission_radius(self.world.bases[0]) * (2 + 1)/2 # always the same distance as 2 agents - does not work otherwise
+            self.R_half = self.transmission_radius_bases * (2 + 1)/2 # always the same distance as 2 agents - does not work otherwise
 
-        #min_base_radius = min(max(1/self.n_agents, self.episode_counter / 5000), 0.9) 
-        #min_base_radius = 1/self.n_agents
-        #base_positions = self.generate_base_positions(np_random, self.radius * np_random.uniform(min_base_radius, 1.0))
-        base_positions = self.generate_base_positions(np_random, self.radius * np_random.uniform(0.9, 1.0))
+        base_positions = self.generate_base_positions(self.R)
+        world.base_positions = base_positions
         #base_positions = self.generate_base_positions(np_random, self.radius * np_random.uniform(0.8, 1.0))
         for i, base in enumerate(world.bases):
             #base.state.p_pos = np_random.uniform(-self.world_size, self.world_size, world.dim_p)
@@ -339,10 +357,10 @@ class Info_relay_env(ParallelEnv):
 
         #radius = self.radius * min(self.episode_counter / 2500, 1) # increases from 0 to 1 
         #radius = self.radius*2
-        radius = self.radius*1.5
+        spawn_radius = self.R_half*1.2
         #radius = self.radius
 
-        agent_positions = self.generate_entity_positions(np_random, base_positions, radius, self.n_agents)
+        agent_positions = self.generate_agent_positions(np_random, base_positions, spawn_radius, self.n_agents)
 
         for i, agent in enumerate(world.agents):
             #agent.state.p_pos = np.array(world.bases[0].state.p_pos) # all starts at the first base
@@ -355,14 +373,14 @@ class Info_relay_env(ParallelEnv):
             # initiate the message_buffer so that it always has the same size
             agent.message_buffer = False
 
-        emitter_positions = self.generate_entity_positions(np_random, base_positions, radius, self.num_emitters)
+        emitter_positions = self.generate_jammer_positions(np_random, base_positions, self.num_emitters, self.transmission_radius_bases)
 
         for i, emitter in enumerate(world.emitters):
             #agent.state.p_pos = np.array(world.bases[0].state.p_pos) # all starts at the first base
             #agent.state.p_pos = np_random.uniform(-self.world_size*3, self.world_size*3, world.dim_p) # randomly assign starting location in a square
             emitter.state.p_pos = emitter_positions[i]
             emitter.state.p_vel = np.zeros(world.dim_p) 
-
+            emitter.generate_action(self.R)
             emitter.state.theta = 0.0 
 
     def reset(self, seed=None, options=None): # options is dictionary
@@ -558,7 +576,7 @@ class Info_relay_env(ParallelEnv):
             float: Penalty value.
         """
         dist = np.linalg.norm(agent.state.p_pos - self.center)
-        normalized_dist = dist / self.radius  # Normalize relative to allowed radius
+        normalized_dist = dist / self.R_half  # Normalize relative to allowed radius
 
         if normalized_dist < 1.2:
             return 0
@@ -707,10 +725,14 @@ class Info_relay_env(ParallelEnv):
             
             transmitted_power = transmitter.transmit_power/(np.linalg.norm(rel_pos) * reciever.internal_noise)**2
 
+            reciever.current_jamming_factor = 1
+
             for jammer in jammers:
                 #Start jamming
                 rel_pos_j = reciever.state.p_pos - jammer.state.p_pos
-                transmitted_power = transmitted_power / (1 + 3 * ((np.linalg.norm(rel_pos_j))**(-2)))
+                reciever.current_jamming_factor /= (1 + 3 * ((np.linalg.norm(rel_pos_j))**(-2)))
+                
+            transmitted_power = transmitted_power * reciever.current_jamming_factor
 
             return transmitted_power
         
@@ -827,7 +849,7 @@ class Info_relay_env(ParallelEnv):
         # update bounds to center around agent
         all_poses = [entity.state.p_pos for entity in self.world.entities]
         cam_range = max(np.max(np.abs(np.array(all_poses))),1)
-        #cam_range = 1 # obs just to check how it looks without scaling
+        #cam_range = 10 # obs just to check how it looks without scaling
 
         # update geometry and text positions
         text_line = 0
@@ -841,7 +863,7 @@ class Info_relay_env(ParallelEnv):
                 (x / cam_range) * self.width // 2 * 0.9
             )  # the .9 is just to keep entities from appearing "too" out-of-bounds
             y = (y / cam_range) * self.height // 2 * 0.9
-            x += self.width // 2
+            x += self.width // 4
             y += self.height // 2
 
             # If entity is transmitting, reset intensity to 1
@@ -856,6 +878,15 @@ class Info_relay_env(ParallelEnv):
             fade_factor = entity.color_intensity  # 1.0 when transmitting, fades to 0
             brightened_color = np.minimum(base_color + fade_factor * 150, 255)
 
+            entity.state.save_history()
+            history_copy = copy(entity.state.p_pos_history)
+            for i, pos in enumerate(history_copy):
+                # Rescale for screen
+                history_copy[i] = ((pos[0] / cam_range) * self.width // 2 * 0.9 + self.width // 4, -(pos[1] / cam_range) * self.height // 2 * 0.9 + self.height // 2)
+
+            if (len(history_copy) > 1):
+                pygame.draw.lines(self.screen, brightened_color, False, history_copy, round(entity.size * 350))
+
             pygame.draw.circle(
                 self.screen, brightened_color, (x, y), entity.size * 350 #old color:  entity.color * 200
             )  # 350 is an arbitrary scale factor to get pygame to render similar sizes as pyglet
@@ -865,13 +896,13 @@ class Info_relay_env(ParallelEnv):
             scaled_transmission_radius_bases = (self.transmission_radius_bases / cam_range) * (self.width // 2) * 0.9
             if isinstance(entity, Base): # transmit radius for bases
                 pygame.draw.circle(
-                    self.screen, (0, 0, 0), (x, y), scaled_transmission_radius_bases, 1
+                    self.screen, (0, 0, 0), (x, y), scaled_transmission_radius_bases * np.sqrt(entity.current_jamming_factor), 1
                 )  # signal transmit radius
 
             if isinstance(entity, Drone) and self.com_used and not self.antenna_used:
                 scaled_transmission_radius_drones = (self.transmission_radius_drones / cam_range) * (self.width // 2) * 0.9
                 pygame.draw.circle(
-                    self.screen, (0, 0, 0), (x, y), scaled_transmission_radius_drones, 1
+                    self.screen, (0, 0, 0), (x, y), scaled_transmission_radius_drones * np.sqrt(entity.current_jamming_factor), 1
                 )  # signal transmit radius
             assert (
                 0 < x < self.width and 0 < y < self.height
