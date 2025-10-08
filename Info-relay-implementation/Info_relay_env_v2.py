@@ -725,10 +725,14 @@ class Info_relay_env(ParallelEnv):
             
             transmitted_power = transmitter.transmit_power/(np.linalg.norm(rel_pos) * reciever.internal_noise)**2
 
+            reciever.current_jamming_factor = 1
+
             for jammer in jammers:
                 #Start jamming
                 rel_pos_j = reciever.state.p_pos - jammer.state.p_pos
-                transmitted_power = transmitted_power / (1 + 3 * ((np.linalg.norm(rel_pos_j))**(-2)))
+                reciever.current_jamming_factor /= (1 + 3 * ((np.linalg.norm(rel_pos_j))**(-2)))
+                
+            transmitted_power = transmitted_power * reciever.current_jamming_factor
 
             return transmitted_power
         
@@ -883,7 +887,6 @@ class Info_relay_env(ParallelEnv):
             if (len(history_copy) > 1):
                 pygame.draw.lines(self.screen, brightened_color, False, history_copy, round(entity.size * 350))
 
-            print("x, y", x , " , ", y)
             pygame.draw.circle(
                 self.screen, brightened_color, (x, y), entity.size * 350 #old color:  entity.color * 200
             )  # 350 is an arbitrary scale factor to get pygame to render similar sizes as pyglet
@@ -893,13 +896,13 @@ class Info_relay_env(ParallelEnv):
             scaled_transmission_radius_bases = (self.transmission_radius_bases / cam_range) * (self.width // 2) * 0.9
             if isinstance(entity, Base): # transmit radius for bases
                 pygame.draw.circle(
-                    self.screen, (0, 0, 0), (x, y), scaled_transmission_radius_bases, 1
+                    self.screen, (0, 0, 0), (x, y), scaled_transmission_radius_bases * np.sqrt(entity.current_jamming_factor), 1
                 )  # signal transmit radius
 
             if isinstance(entity, Drone) and self.com_used and not self.antenna_used:
                 scaled_transmission_radius_drones = (self.transmission_radius_drones / cam_range) * (self.width // 2) * 0.9
                 pygame.draw.circle(
-                    self.screen, (0, 0, 0), (x, y), scaled_transmission_radius_drones, 1
+                    self.screen, (0, 0, 0), (x, y), scaled_transmission_radius_drones * np.sqrt(entity.current_jamming_factor), 1
                 )  # signal transmit radius
             assert (
                 0 < x < self.width and 0 < y < self.height

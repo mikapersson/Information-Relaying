@@ -27,7 +27,6 @@ class EntityState:  # physical/external base state of all entities
         self.p_pos_history.append(copy(self.p_pos))
         while (len(self.p_pos_history) > self.p_history_max_length):
             self.p_pos_history.pop(0)
-        print("hist: ", self.p_pos_history)
 
 
 class DroneState(EntityState):  # state of agents (including communication and internal/mental state)
@@ -91,6 +90,8 @@ class Entity:  # properties and state of physical world entity
         self.silent = False
 
         self.transmit_power = 0.5625 # in SNR calculation
+
+        self.current_jamming_factor = 0.
 
         self.internal_noise = 1 # internal noise for SNR calculation
 
