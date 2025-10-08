@@ -56,7 +56,7 @@ alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 class Info_relay_env(ParallelEnv):
     metadata = {
         "name": "Info_relay_v2",
-        "render_fps": 1
+        "render_fps": 2
     }
 
     def __init__(self, num_agents = 1, num_bases = 2, num_emitters = 1, world_size = 1,
@@ -874,6 +874,16 @@ class Info_relay_env(ParallelEnv):
             fade_factor = entity.color_intensity  # 1.0 when transmitting, fades to 0
             brightened_color = np.minimum(base_color + fade_factor * 150, 255)
 
+            entity.state.save_history()
+            history_copy = copy(entity.state.p_pos_history)
+            for i, pos in enumerate(history_copy):
+                # Rescale for screen
+                history_copy[i] = ((pos[0] / cam_range) * self.width // 2 * 0.9 + self.width // 4, -(pos[1] / cam_range) * self.height // 2 * 0.9 + self.height // 2)
+
+            if (len(history_copy) > 1):
+                pygame.draw.lines(self.screen, brightened_color, False, history_copy, round(entity.size * 350))
+
+            print("x, y", x , " , ", y)
             pygame.draw.circle(
                 self.screen, brightened_color, (x, y), entity.size * 350 #old color:  entity.color * 200
             )  # 350 is an arbitrary scale factor to get pygame to render similar sizes as pyglet

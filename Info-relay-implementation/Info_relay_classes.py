@@ -1,3 +1,4 @@
+from copy import copy
 import math
 import numpy as np
 
@@ -13,12 +14,20 @@ class EntityState:  # physical/external base state of all entities
     def __init__(self):
         # physical position
         self.p_pos = None 
+        self.p_pos_history = []
+        self.p_history_max_length = 25
         # physical velocity
         self.p_vel = None
         # communication utterance
         self.c = None # OBS init all agent with the same (ID)!!!
         # transmitting if True, listening if False. 
         #self.sending = False # obs kalla denna self.c som i envet? eller kanske modda envet?
+
+    def save_history(self):
+        self.p_pos_history.append(copy(self.p_pos))
+        while (len(self.p_pos_history) > self.p_history_max_length):
+            self.p_pos_history.pop(0)
+        print("hist: ", self.p_pos_history)
 
 
 class DroneState(EntityState):  # state of agents (including communication and internal/mental state)
