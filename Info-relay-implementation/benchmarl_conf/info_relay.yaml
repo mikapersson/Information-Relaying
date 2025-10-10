@@ -1,0 +1,20 @@
+defaults:
+  #- customenv_info_relay_config
+  - _self_
+
+task: info_relay
+parallel: True
+
+max_cycles: 100 # OBS
+num_agents: 1
+num_bases: 2
+
+num_messages: 1
+
+random_base_pose: True # makes the game easier if turned off
+
+antenna_used: False
+
+observe_self: True # OBS change
+
+
