@@ -1,0 +1,3 @@
+[submodule "Info-relay-implementation/BenchMARL"]
+	path = Info-relay-implementation/BenchMARL
+	url = https://github.com/jacobljungberg/BenchMARL.git
