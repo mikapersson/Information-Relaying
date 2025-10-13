@@ -292,8 +292,6 @@ class Info_relay_env(ParallelEnv):
         Assumes that that the bases lay on the x-axis
         """
 
-        print("base positions: ", base_positions)
-
         positions = []
 
         for i in range(n_entities):

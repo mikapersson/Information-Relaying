@@ -3,9 +3,9 @@ defaults:
   - _self_
 
 # The device for collection (e.g. cuda)
-sampling_device: "cpu"
+sampling_device: "cuda:3"
 # The device for training (e.g. cuda)
-train_device: "cpu"
+train_device: "cuda:3"
 # The device for the replay buffer of off-policy algorithms (e.g. cuda).
 # Use "disk" to store it on disk (in the experiment save_folder)
 buffer_device: "cpu"
