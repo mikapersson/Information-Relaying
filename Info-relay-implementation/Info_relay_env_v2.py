@@ -59,7 +59,7 @@ class Info_relay_env(ParallelEnv):
         "render_fps": 2
     }
 
-    def __init__(self, num_agents = 1, num_bases = 2, num_emitters = 1, world_size = 1,
+    def __init__(self, num_agents = 1, num_bases = 2, num_emitters = 0, world_size = 1,
                  a_max = 1.0, omega_max = np.pi/4, step_size = 0.05, max_cycles = 25, 
                  continuous_actions = True, one_hot_vector = False, antenna_used = True, 
                  com_used = True, num_messages = 1, base_always_transmitting = True, 
@@ -244,27 +244,13 @@ class Info_relay_env(ParallelEnv):
 
         return world
 
-    # TODO - remove
     def generate_base_positions(self, R):
         """Generate random base positions with equal spacing.
         Used in reset_world to place bases."""
         
         positions = np.array([[0.0, 0.0], [R, 0.0]])
 
-        return positions  
-        
-    # TODO - new generate base pos
-    # def generate_base_positions(self, np_random, radius):
-    #     """Generate random base positions with a certain distance.
-    #     The bases are always located on the x-axis, with the transmitting base at (0,0)
-    #     Used in reset_world to place bases."""
-        
-    #     x_positions = np.linspace(0,radius,2)
-    #     y_positions = np.zeros(2)
-    #     print(y_positions)
-    #     print(radius)
-    #     print(positions)
-    #     return positions   
+        return positions   
     
     
     def generate_agent_positions(self, np_random, base_positions, spawn_radius, n_entities):
@@ -318,8 +304,6 @@ class Info_relay_env(ParallelEnv):
             #emitter.state.p_pos = np_random.uniform(-self.world_size, self.world_size, world.dim_p)
             emitter.state.p_pos = np.zeros(world.dim_p)
             emitter.state.p_vel = np.zeros(world.dim_p)
-
-        world.message_ID_counter = 0 # resets the message_ID counter
     
         self.R_half = np_random.uniform(self.transmission_radius_bases * self.n_agents, self.transmission_radius_bases * (self.n_agents + 4))/2
         self.R = self.R_half * 2
@@ -379,7 +363,7 @@ class Info_relay_env(ParallelEnv):
             emitter.state.p_pos = emitter_positions[i]
             emitter.state.p_vel = np.zeros(world.dim_p) 
             emitter.generate_action(self.R)
-            emitter.state.theta = 0.0 
+            emitter.state.theta = 0.0 # TODO - maybe randomize?
 
     def reset(self, seed=None, options=None): # options is dictionary
         
@@ -480,7 +464,7 @@ class Info_relay_env(ParallelEnv):
 
         # run all comunications in the env
         self.communication_kernel()
-
+        
         ## here we can look at the rewards - after world step - could be done after observations instead!
         global_reward = self.global_reward()
         reward_help = {agent.name: 0 for agent in self.world.agents} #self.transmission_reward()
@@ -554,9 +538,14 @@ class Info_relay_env(ParallelEnv):
         Rewards given to all agents. Given by correctly delivering messages.
         """
         reward = 0
+        self.discount_factor = 0.99 # TODO OBS fixa som input till klassen!!
+
+        D_tot = (1 + 0.1 * self.n_agents)*self.R + (2 + 0.5 * self.n_agents * (self.n_agents - 1))*self.world.transmission_radius
+
+        T = (1.1*self.R + 2*self.world.transmission_radius)/self.a_max + self.n_agents
 
         if self.world.bases[1].message_buffer: # meddelandet har levererats (detta tidsteg)
-            pass # TODO lägg in korrekt funktion här
+            reward = (1 - self.discount_factor**T)/(1 - self.discount_factor) * (D_tot/T)**2
 
         return reward
 
@@ -588,7 +577,7 @@ class Info_relay_env(ParallelEnv):
         The reward given to each agent - could be made up of multiple different rewards in different functions
         """
         # TODO - update to new reward
-        return global_reward - self.calculate_action_penalties(agent)*10 #+ reward_help/10
+        return global_reward - self.calculate_action_penalties(agent)#*10 #+ reward_help/10
     
     def get_entity_by_name(self, name):
         """

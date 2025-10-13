@@ -11,7 +11,7 @@ In order to run the simulator togetehr with BenchMARL, the following steps have 
     - git clone --recurse-submodule url/to/info_relay_env
     - it is also possible to clone without the --recurse-submodule flag and insteadrun the following commands after installation:
         * git submoudle init
-        * git submodule upgrade
+        * git submodule update
 
 2. Now it is highly recommended (necessary) to setup a virtual environment. Use python 3.11:
     - python3.11 -m venv path/to/venv
