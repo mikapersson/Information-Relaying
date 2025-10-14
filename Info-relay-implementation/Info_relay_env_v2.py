@@ -685,20 +685,16 @@ class Info_relay_env(ParallelEnv):
             #phi_t = 0
 
             if isinstance(transmitter, Base):
-               phi_t = 0 ## bases and emitter send in all directions with the same power 
+               theta = 0 ## bases and emitter send in all directions with the same power 
             else:
-               phi_t = alpha - transmitter.state.theta + np.pi
-                #phi_t = alpha - transmitter.state.theta 
-               phi_t = np.arctan2(np.sin(phi_t), np.cos(phi_t)) # "normalizing the phi_t"
+               theta = (alpha - transmitter.state.theta + np.pi)%(2*np.pi) - np.pi
 
-            if abs(phi_r) > np.pi/2 or abs(phi_t) > np.pi/2: # the drones do not look at each other
+            if (theta < - np.pi/2 or np.pi/2 < theta):
                 SNR = 0
-            else:
-                SNR = transmitter.transmit_power * np.cos(phi_t) * np.cos(phi_r) / (
-                    np.linalg.norm(rel_pos) * reciever.internal_noise)**2
-
-            #print(f"reciever {reciever.name}, transmitter {transmitter.name}, phi_r/phi_t: {phi_r}/{phi_t} SNR: ", SNR)
-
+            else: 
+                SNR = (1 + np.linalg.norm([np.cos(theta), np.sin(theta)])) / (
+                    np.linalg.norm(rel_pos))**2
+                
             for jammer in jammers:
                 #Start jamming
                 rel_pos_j = reciever.state.p_pos - jammer.state.p_pos
