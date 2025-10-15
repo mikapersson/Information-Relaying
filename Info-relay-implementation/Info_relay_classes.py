@@ -15,7 +15,7 @@ class EntityState:  # physical/external base state of all entities
         # physical position
         self.p_pos = None 
         self.p_pos_history = []
-        self.p_history_max_length = 25
+        self.p_history_max_length = 200
         # physical velocity
         self.p_vel = None
         # communication utterance
@@ -89,7 +89,7 @@ class Entity:  # properties and state of physical world entity
         # the agent cannot send communication (different from self.c i state/action??)
         self.silent = False
 
-        self.transmit_power = 0.5625 # in SNR calculation
+        self.transmit_power = 1 #0.5625 # in SNR calculation
 
         self.current_jamming_factor = 0.
 
@@ -211,8 +211,8 @@ class Drone(Entity):  # properties of agent entities
         # a list of the possible messages - list of lists (messages)
         self.message_buffer = []#np.zeros([self.message_buffer_size, 5]) 
 
-        self.movement_cost = 0.01*4 # the cost of movement - scales with magnitude of movement 
-        self.radar_cost = 0.005 # cost of changing direction of radar
+        self.movement_cost = 5 # the cost of movement - scales with magnitude of movement 
+        self.radar_cost = 1 # cost of changing direction of radar
         self.transmission_cost = 0.001 # cost of transmitting a message 
 
 
@@ -241,9 +241,9 @@ class World:  # multi-agent world
         # simulation timestep
         self.dt = 0.1
         # noice level in control signals - maybe attributes of the Drones instead? not the world?
-        self.sigma_x = 0.1
-        self.sigma_y = 0.1
-        self.sigma_omgea = 0.1
+        self.sigma_x = 0.0
+        self.sigma_y = 0.0
+        self.sigma_omgea = 0.0
         # physical damping
         #self.damping = 0.25
         # contact response parameters - not used by us?

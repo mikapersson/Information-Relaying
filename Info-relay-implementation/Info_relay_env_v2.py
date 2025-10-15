@@ -319,6 +319,8 @@ class Info_relay_env(ParallelEnv):
             base.state.p_vel = np.zeros(world.dim_p)
 
             base.color_intensity = 0 # resets graphics so it does not look like it is sending
+            
+            base.state.p_pos_history = []
 
         world.R = np.linalg.norm(world.bases[0].state.p_pos - world.bases[1].state.p_pos)
 
@@ -355,6 +357,7 @@ class Info_relay_env(ParallelEnv):
             # initiate the message_buffer so that it always has the same size
             agent.message_buffer = False 
             agent.state.c = 0 # ingen agent börjar med meddelande - alltså sänder ingen i början - kanske inte behöver denna - kör bara .message_buffer
+            agent.state.p_pos_history = [] # reset the position history - for visuals
 
         emitter_positions = self.generate_jammer_positions(np_random, base_positions, self.num_emitters, self.transmission_radius_bases)
 
@@ -365,6 +368,8 @@ class Info_relay_env(ParallelEnv):
             emitter.state.p_vel = np.zeros(world.dim_p) 
             emitter.generate_action(self.R)
             emitter.state.theta = 0.0 # TODO - maybe randomize?
+            emitter.state.p_pos_history = []
+
 
     def reset(self, seed=None, options=None): # options is dictionary
         
@@ -396,7 +401,6 @@ class Info_relay_env(ParallelEnv):
     
 
     #sets the action in the case where all actions are discrete
-    # OBS: the self.a_max variable can be changed to an agent-specific value to keep track of 
     def set_discrete_action(self, action, agent):
         agent.action.u = np.zeros(3)
         
@@ -458,19 +462,19 @@ class Info_relay_env(ParallelEnv):
             action = actions.get(agent.name, np.zeros(5)) # get the action for each agent
             self.set_action(action, agent)
 
-    
-        #print("step", self.timestep)
-        self.world.step() # the world controls the motion of the agents - (also controls communication ?)
-        #print("world step done")
+        self.world.step() # the world controls the motion of the agents
 
         # run all comunications in the env
         self.communication_kernel()
         
         ## here we can look at the rewards - after world step - could be done after observations instead!
         global_reward = self.global_reward()
-        reward_help = {agent.name: 0 for agent in self.world.agents} #self.transmission_reward()
+        total_action_penalties = 0
         for agent in self.world.agents:
-            rewards[agent.name] = float(self.reward(agent, global_reward, reward_help[agent.name]))
+            total_action_penalties += self.calculate_action_penalties(agent)
+
+        for agent in self.world.agents:
+            rewards[agent.name] = float(self.reward(agent, global_reward, total_action_penalties))
         
         terminations = self.terminate()
         #terminations = {agent.name: False for agent in self.world.agents}
@@ -526,14 +530,9 @@ class Info_relay_env(ParallelEnv):
                 penalties += abs(agent.action.u[1]**2*agent.movement_cost)
             penalties += abs(agent.action.u[2]**2*agent.radar_cost)
 
-
-        # Communication costs - TODO någon mening att ha kvar kostnad om agenten inte själb beslutar om att sända?
-        if not agent.action.c == 0: # sending
-            penalties += abs(agent.transmission_cost)
-
         return penalties
     
-    # 2_way_update - 25 points reward for the first messages delivered to each base - 50 once both are done
+
     def global_reward(self):
         """
         Rewards given to all agents. Given by correctly delivering messages.
@@ -541,15 +540,14 @@ class Info_relay_env(ParallelEnv):
         reward = 0
         self.discount_factor = 0.99 # TODO OBS fixa som input till klassen!! - för att smidigt kunna ändra den
 
-        D_tot = (1 + 0.1 * self.n_agents)*self.R + (2 + 0.5 * self.n_agents * (self.n_agents - 1))*self.world.transmission_radius
+        D_tot = (1 + 0.1*self.n_agents)*self.R + (2 + 0.5*self.n_agents*(self.n_agents - 1))*self.world.transmission_radius
 
         T = (1.1*self.R + 2*self.world.transmission_radius)/self.a_max + self.n_agents
 
         if self.world.bases[1].message_buffer: # meddelandet har levererats (detta tidsteg)
-            #reward = (1 - self.discount_factor**T)/(1 - self.discount_factor) * (D_tot/T)**2
-            reward = 100
+            reward = (1 - self.discount_factor**T)/(1 - self.discount_factor) * (D_tot/T)**2 
 
-        return reward
+        return reward*100 # OBS extra factor!
 
     def bound(self, agent):
         """
@@ -574,13 +572,14 @@ class Info_relay_env(ParallelEnv):
         return min(np.exp(2 * normalized_dist - 2), 10)
 
     
-    def reward(self, agent, global_reward, reward_help): ## OBS this could be put into the Scenario class
+    def reward(self, agent, global_reward, action_penalties): ## OBS this could be put into the Scenario class
         """ 
         The reward given to each agent - could be made up of multiple different rewards in different functions
         """
         # TODO - update to new reward
-        return global_reward - self.calculate_action_penalties(agent)*10 #+ reward_help/10
+        return global_reward - action_penalties #self.calculate_action_penalties(agent)
     
+
     def get_entity_by_name(self, name):
         """
         Returns the entity instance correpsonding to a name
