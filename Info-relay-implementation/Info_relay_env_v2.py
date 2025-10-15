@@ -328,6 +328,7 @@ class Info_relay_env(ParallelEnv):
         world.bases[1].silent = True # only one base sending
         world.bases[0].generate_messages = False # the same message all the time
         world.bases[0].silent = False 
+        world.bases[1].message_buffer = False # reset the message buffer 
             
 
         # Compute the midpoint of all bases
@@ -349,11 +350,11 @@ class Info_relay_env(ParallelEnv):
             #agent.state.p_pos = np_random.uniform(-self.world_size*3, self.world_size*3, world.dim_p) # randomly assign starting location in a square
             agent.state.p_pos = agent_positions[i]
             agent.state.p_vel = np.zeros(world.dim_p) 
-            agent.state.c = 0 # ingen agent börjar med meddelande - alltså sänder ingen i början - kanske inte behöver denna - kör bara .message_buffer
 
             agent.state.theta = np.random.uniform(0,2*np.pi)
             # initiate the message_buffer so that it always has the same size
-            agent.message_buffer = False
+            agent.message_buffer = False 
+            agent.state.c = 0 # ingen agent börjar med meddelande - alltså sänder ingen i början - kanske inte behöver denna - kör bara .message_buffer
 
         emitter_positions = self.generate_jammer_positions(np_random, base_positions, self.num_emitters, self.transmission_radius_bases)
 
@@ -538,14 +539,15 @@ class Info_relay_env(ParallelEnv):
         Rewards given to all agents. Given by correctly delivering messages.
         """
         reward = 0
-        self.discount_factor = 0.99 # TODO OBS fixa som input till klassen!!
+        self.discount_factor = 0.99 # TODO OBS fixa som input till klassen!! - för att smidigt kunna ändra den
 
         D_tot = (1 + 0.1 * self.n_agents)*self.R + (2 + 0.5 * self.n_agents * (self.n_agents - 1))*self.world.transmission_radius
 
         T = (1.1*self.R + 2*self.world.transmission_radius)/self.a_max + self.n_agents
 
         if self.world.bases[1].message_buffer: # meddelandet har levererats (detta tidsteg)
-            reward = (1 - self.discount_factor**T)/(1 - self.discount_factor) * (D_tot/T)**2
+            #reward = (1 - self.discount_factor**T)/(1 - self.discount_factor) * (D_tot/T)**2
+            reward = 100
 
         return reward
 
@@ -577,7 +579,7 @@ class Info_relay_env(ParallelEnv):
         The reward given to each agent - could be made up of multiple different rewards in different functions
         """
         # TODO - update to new reward
-        return global_reward - self.calculate_action_penalties(agent)#*10 #+ reward_help/10
+        return global_reward - self.calculate_action_penalties(agent)*10 #+ reward_help/10
     
     def get_entity_by_name(self, name):
         """
@@ -628,10 +630,11 @@ class Info_relay_env(ParallelEnv):
 
         for base in self.world.bases: # maybe remove loop - only look at the 2nd base
             for agent in self.world.agents:
-                SNR = self.calculate_SNR(base, agent, self.world.emitters)
-                if self.check_signal_detection(SNR):
-                    base.message_buffer = True # the game should end once this condition is met
-                    continue
+                if agent.message_buffer:
+                    SNR = self.calculate_SNR(base, agent, self.world.emitters)
+                    if self.check_signal_detection(SNR):
+                        base.message_buffer = True # the game should end once this condition is met
+                        continue
             for other in self.world.bases: # maybe remove loop - only look at the first base
                 if other.name == base.name:
                     continue
