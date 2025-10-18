@@ -4,7 +4,7 @@
 Simulator for testing out the information relaying environemnt and training the agents using MARL. 
 
 ## Running the simulator with BenchMARL (for training)
-Training of the info relay environment in the easiest way possible is currently using BenchMARL [link text](https://github.com/facebookresearch/BenchMARL).
+Training of the info relay environment in the easiest way possible is currently using [BenchMARL](https://github.com/facebookresearch/BenchMARL).
 
 In order to run the simulator together with BenchMARL, the following steps have to be made:
 1. Clone the Information Relaying repository and the BenchMARL submodule with:
