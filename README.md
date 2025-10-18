@@ -9,8 +9,8 @@ Training of the info relay environment in the easiest way possible is currently 
 In order to run the simulator together with BenchMARL, the following steps have to be made:
 1. Clone the Information Relaying repository and the BenchMARL submodule with:
     - git clone --recurse-submodule url/to/info_relay_env
-    - it is also possible to clone without the --recurse-submodule flag and insteadrun the following commands after installation:
-        * git submoudle init
+    - it is also possible to clone without the --recurse-submodule flag and insteadrun the following commands after installation (cd Information-Relaying):
+        * git submodule init
         * git submodule update
 
 2. Now it is necessary to setup a virtual environment. Use python 3.11:
