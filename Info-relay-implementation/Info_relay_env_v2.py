@@ -60,10 +60,10 @@ class Info_relay_env(ParallelEnv):
     }
 
     def __init__(self, num_agents = 1, num_bases = 2, num_emitters = 0, world_size = 1,
-                 a_max = 1.0, omega_max = np.pi/4, step_size = 0.05, max_cycles = 25, 
+                 a_max = 0.1, omega_max = np.pi/4, step_size = 1, max_cycles = 25, 
                  continuous_actions = True, one_hot_vector = False, antenna_used = True, 
                  com_used = True, num_messages = 1, base_always_transmitting = True, 
-                 random_base_pose = True, observe_self = True, render_mode = None):
+                 random_base_pose = True, observe_self = True, render_mode = None, curriculum_learning = False):
         #super().__init__()
         self.render_mode = render_mode
         pygame.init()
@@ -107,6 +107,8 @@ class Info_relay_env(ParallelEnv):
         self.base_always_transmitting = base_always_transmitting # decides if the base is sending every time step. If false, the base send sporadically
 
         self.random_base_pose = random_base_pose # if the bases starting positions are random or always located on the x-axis
+
+        self.curriculum_learning = curriculum_learning
 
         self.possible_agents = [agent.name for agent in self.world.agents] 
 
@@ -213,7 +215,7 @@ class Info_relay_env(ParallelEnv):
         for i, agent in enumerate(world.agents):
             agent.name = f"agent_{i}"
             agent.size = 0.025/2 #quite small
-            agent.max_speed = 1.0 # can be cnahged later! or different for differnt agents
+            agent.max_speed = self.a_max
             agent.u_range = [self.a_max, self.omega_max] # maximum control range = a_max, omega_max
             agent.internal_noise = 1 ## set internal noise level
             agent.color = np.array([0, 0.33, 0.67])
@@ -225,7 +227,7 @@ class Info_relay_env(ParallelEnv):
         for i, emitter in enumerate(world.emitters):
             emitter.name = f"jammer_{i}"
             emitter.size = 0.025/2
-            emitter.max_speed = 1.0
+            emitter.max_speed = self.a_max
             agent.u_range = [self.a_max, self.omega_max] # maximum control range = a_max, omega_max
             emitter.internal_noise = 1
             emitter.color = np.array([1.0, 0, 0])            
@@ -294,6 +296,17 @@ class Info_relay_env(ParallelEnv):
             positions.append(position)
 
         return positions
+
+    def get_max_base_distance(self, world):
+        """ The function return the meximum allowed distance between the bases - depends on if curriculum learning is used or not """
+        if self.curriculum_learning:
+            R_min = self.transmission_radius_bases * self.n_agents
+            pot_rmax = R_min + self.transmission_radius_bases * (self.n_agents + 4) * self.episode_counter/1000 # TODO OBS: kolla djupare på denna parametern
+            R_max = min(R_min, pot_rmax)
+        else:
+            R_max = self.transmission_radius_bases * (self.n_agents + 4)
+        
+        return R_max
     
     def reset_world(self, world, np_random): # np_ranodm should be some sort of seed for reproducability
         """
@@ -304,8 +317,11 @@ class Info_relay_env(ParallelEnv):
             #emitter.state.p_pos = np_random.uniform(-self.world_size, self.world_size, world.dim_p)
             emitter.state.p_pos = np.zeros(world.dim_p)
             emitter.state.p_vel = np.zeros(world.dim_p)
-    
-        self.R_half = np_random.uniform(self.transmission_radius_bases * self.n_agents, self.transmission_radius_bases * (self.n_agents + 4))/2
+
+
+        R_max = self.get_max_base_distance(world)    
+
+        self.R_half = np_random.uniform(self.transmission_radius_bases * self.n_agents, R_max)/2
         self.R = self.R_half * 2
         if self.num_bases == 3:
             self.R_half = self.transmission_radius_bases * (2 + 1)/2 # always the same distance as 2 agents - does not work otherwise
@@ -538,16 +554,16 @@ class Info_relay_env(ParallelEnv):
         Rewards given to all agents. Given by correctly delivering messages.
         """
         reward = 0
-        self.discount_factor = 0.99 # TODO OBS fixa som input till klassen!! - för att smidigt kunna ändra den
+        self.discount_factor = 0.99 # TODO OBS fixa som input till klassen!! - ska sättas en gång både till envet och experimentet
 
         D_tot = (1 + 0.1*self.n_agents)*self.R + (2 + 0.5*self.n_agents*(self.n_agents - 1))*self.world.transmission_radius
 
         T = (1.1*self.R + 2*self.world.transmission_radius)/self.a_max + self.n_agents
 
         if self.world.bases[1].message_buffer: # meddelandet har levererats (detta tidsteg)
-            reward = (1 - self.discount_factor**T)/(1 - self.discount_factor) * (D_tot/T)**2 
+            reward = (1 - self.discount_factor**T)/(1 - self.discount_factor) * (D_tot/T)**2
 
-        return reward*100 # OBS extra factor!
+        return reward 
 
     def bound(self, agent):
         """
@@ -637,16 +653,18 @@ class Info_relay_env(ParallelEnv):
             for other in self.world.bases: # maybe remove loop - only look at the first base
                 if other.name == base.name:
                     continue
-                SNR = self.calculate_SNR(base, other, self.world.emitters)
-                if self.check_signal_detection(SNR):
-                    base.message_buffer = True
-                    continue
+                if base.state.c == 1:
+                    SNR = self.calculate_SNR(base, other, self.world.emitters)
+                    if self.check_signal_detection(SNR):
+                        base.message_buffer = True
+                        continue
 
     
     def check_base_com(self):
         """ Checks if the base should send this timestep """
         if not self.base_always_transmitting:
-            self.world.bases[0].state.c = np.random.binomial(1, 0.2) # singlar slant om den ska sända eller ej
+            #self.world.bases[0].state.c = np.random.binomial(1, 0.2) # singlar slant om den ska sända eller ej
+            self.world.bases[0].c = 1 # base is always sending
  
 
     def calculate_transmission_radius(self, entity):
@@ -889,9 +907,9 @@ class Info_relay_env(ParallelEnv):
                 pygame.draw.circle(
                     self.screen, (0, 0, 0), (x, y), scaled_transmission_radius_drones * np.sqrt(entity.current_jamming_factor), 1
                 )  # signal transmit radius
-            assert (
-                0 < x < self.width and 0 < y < self.height
-            ), f"Coordinates {(x, y)} are out of bounds."
+            #assert (
+            #    0 < x < self.width and 0 < y < self.height
+            #), f"Coordinates {(x, y)} are out of bounds."
 
             # Display entity name next to it
             name_x_pos = x + 10  # Offset slightly to the right

@@ -1,13 +1,14 @@
 defaults:
-  #- customenv_info_relay_config
+  - customenv_info_relay_config
   - _self_
 
 task: info_relay
 parallel: True
 
-max_cycles: 100 # OBS
-num_agents: 3
+max_cycles: 150 # OBS
+num_agents: 4
 num_bases: 2
+num_emitters: 1 # 1 for jammer, 0 for no jammer
 
 num_messages: 1
 

@@ -165,7 +165,7 @@ class Emitter(Entity): # always transmitting - taking no actions (atleast yet)
             # No idea why it inverts at some point..
             self.action.u = - towards_center / np.linalg.norm(towards_center)
             direction_offset = np.random.uniform( -math.pi / 2, math.pi / 2)
-            print("direction offset: ", direction_offset)
+            #print("direction offset: ", direction_offset)
             rotation_matrix = np.array([[np.cos(direction_offset), - np.sin(direction_offset)],
                                         [np.sin(direction_offset) , np.cos(direction_offset)]])
 
@@ -211,8 +211,8 @@ class Drone(Entity):  # properties of agent entities
         # a list of the possible messages - list of lists (messages)
         self.message_buffer = []#np.zeros([self.message_buffer_size, 5]) 
 
-        self.movement_cost = 5 # the cost of movement - scales with magnitude of movement 
-        self.radar_cost = 1 # cost of changing direction of radar
+        self.movement_cost = 0.05 # the cost of movement - scales with magnitude of movement 
+        self.radar_cost = 0.02 # cost of changing direction of radar
         self.transmission_cost = 0.001 # cost of transmitting a message 
 
 
