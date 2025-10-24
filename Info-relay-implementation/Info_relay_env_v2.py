@@ -59,7 +59,7 @@ class Info_relay_env(ParallelEnv):
         "render_fps": 1
     }
 
-    def __init__(self, num_agents = 1, num_bases = 2, num_emitters = 1, world_size = 1,
+    def __init__(self, num_agents = 1, num_bases = 2, num_emitters = 0, world_size = 1,
                  a_max = 0.1, omega_max = np.pi/4, step_size = 1, max_cycles = 25, 
                  continuous_actions = True, one_hot_vector = False, antenna_used = True, 
                  com_used = True, num_messages = 1, base_always_transmitting = True, 
@@ -250,7 +250,7 @@ class Info_relay_env(ParallelEnv):
         """Generate random base positions with equal spacing.
         Used in reset_world to place bases."""
         
-        positions = np.array([[0.0, 0.0], [R/10, 0.0]])
+        positions = np.array([[0.0, 0.0], [R, 0.0]])
 
         return positions   
     
@@ -264,7 +264,7 @@ class Info_relay_env(ParallelEnv):
     
         center = np.mean(base_positions, axis=0)  # Midpoint of bases
         for i in range(n_entities):
-            radius_agent = np.sqrt(np_random.uniform(0, 1)) * spawn_radius / 100  # Random radius
+            radius_agent = np.sqrt(np_random.uniform(0, 1)) * spawn_radius  # Random radius
             angle = np_random.uniform(0, 2 * np.pi)  # Random angle
             offset = np.array([radius_agent * np.cos(angle), radius_agent * np.sin(angle)])  # Convert to Cartesian
             positions.append(center + offset)
@@ -434,7 +434,6 @@ class Info_relay_env(ParallelEnv):
             agent.action.u[2] = actions[2]*self.omega_max
             if actions[2] == 2:
                 agent.action.u[2] = -self.omega_max
-            print("antenna action: ", agent.action.u[2])
 
 
     # sets action when all outputs are continuous
