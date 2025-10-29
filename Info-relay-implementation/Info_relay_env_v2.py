@@ -7,6 +7,9 @@ from gymnasium import spaces # spaces for action/observation
 import numpy as np
 from copy import copy, deepcopy
 import random
+import os
+from pathlib import Path
+import csv
 
 # to be able to import from current directory in both linux and windows
 try:
@@ -63,7 +66,8 @@ class Info_relay_env(ParallelEnv):
                  a_max = 0.1, omega_max = np.pi/4, step_size = 1, max_cycles = 25, 
                  continuous_actions = True, one_hot_vector = False, antenna_used = True, 
                  com_used = True, num_messages = 1, base_always_transmitting = True, 
-                 random_base_pose = True, observe_self = True, render_mode = None, curriculum_learning = False):
+                 random_base_pose = True, observe_self = True, render_mode = None, curriculum_learning = False,
+                 pre_determined_scenario = False):
         #super().__init__()
         self.render_mode = render_mode
         pygame.init()
@@ -98,7 +102,11 @@ class Info_relay_env(ParallelEnv):
 
         self.continuous_actions = continuous_actions # indicies if continous or discrete actions are used
         self.one_hot_vector = one_hot_vector # if continous - this shows if one hot vector or single value representation of actions (output from NN) are used
-
+        self.pre_determined_scenario = pre_determined_scenario
+        if self.pre_determined_scenario:
+            self.pre_loaded_scenarios = []
+            self.scenario_index_counter = 0
+            self.read_scenario_csv()
         self.antenna_used = antenna_used #OBS ändra när antennen ska styras igen
         self.com_used = com_used #OBS - communications can be turned of to test just the movement in different tasks
         self.observe_self = observe_self
@@ -386,16 +394,108 @@ class Info_relay_env(ParallelEnv):
             emitter.state.theta = 0.0 # TODO - maybe randomize?
             emitter.state.p_pos_history = []
 
+    def apply_pre_loaded_scenario(self):
+        """
+            Reset scenario based on csv file loaded via read_scenario_csv()
+        """
+        print("loading scenario with id:", self.pre_loaded_scenarios[self.scenario_index_counter][0])
+        scenario = self.pre_loaded_scenarios[self.scenario_index_counter]
+        scenario = [float(entry) for entry in scenario]
+        self.R = scenario[1] # distance between bases
+        # R_com = 2 # communication distance (always equal to 1)
+        # R_a = 3 # Not sure. Always 0
+        # p_tx_x = 4 # This stuff has to do with base positions. Fuck that
+        # p_tx_y = 5 # ^
+        # p_rx_x = 6 # ^
+        # p_rx_y = 7 # ^
+        # jammer_x = 8 # Jammer position x
+        # jammer_y = 9 # Jammer position y
+        # jammer_dx = 10  # Jammer velocity x
+        # jammer_dy = 11 # Jammer velocity y
+        # agent1_x = 12 #agent position x
+        # agent1_y = 13 # agent position y
+        # agent1_phi = 14 # agent antenna direction
 
-    def reset(self, seed=None, options=None): # options is dictionary
+        base_positions = self.generate_base_positions(self.R)
+        self.world.base_positions = base_positions
+
+        for i, base in enumerate(self.world.bases):
+            #base.state.p_pos = np_random.uniform(-self.world_size, self.world_size, world.dim_p)
+            base.state.p_pos = base_positions[i]
+            base.state.p_vel = np.zeros(self.world.dim_p)
+
+            base.color_intensity = 0 # resets graphics so it does not look like it is sending
+            
+            base.state.p_pos_history = []
+
+        self.world.R = np.linalg.norm(self.world.bases[0].state.p_pos - self.world.bases[1].state.p_pos)
+
+        self.world.bases[0].state.c = 1
+        self.world.bases[1].state.c = 0
         
+        self.world.bases[1].silent = True # only one base sending
+        self.world.bases[0].generate_messages = False # the same message all the time
+        self.world.bases[0].silent = False 
+        self.world.bases[1].message_buffer = False # reset the message buffer 
+
+        # Compute the midpoint of all bases
+        #base_positions = np.array(positions)
+        self.center = np.mean(base_positions, axis=0)  # Midpoint of bases
+
+        # I feel lie the center point should be contained in world but idk
+        self.world.center = self.center
+
+        for i, agent in enumerate(self.world.agents):
+            agent.state.p_pos = np.array([scenario[12 + i * 2], scenario[13 + i * 2]])
+            agent.state.p_vel = np.zeros(self.world.dim_p) 
+
+            agent.state.theta = scenario[14 + i * 2]
+            # initiate the message_buffer so that it always has the same size
+            agent.message_buffer = False 
+            agent.state.c = 0 # ingen agent börjar med meddelande - alltså sänder ingen i början - kanske inte behöver denna - kör bara .message_buffer
+            agent.state.p_pos_history = [] # reset the position history - for visuals
+
+        for i, emitter in enumerate(self.world.emitters):
+            emitter.state.p_pos = np.array([scenario[8], scenario[9]])
+            emitter.state.p_vel = np.zeros(self.world.dim_p)
+            
+            emitter.action.u = np.array([scenario[10], scenario[11]])
+            emitter.state.theta = 0.0 # TODO - maybe randomize?
+            emitter.state.p_pos_history = []
+
+            # Whack but only do one jammer for now
+            break
+            
+
+    def read_scenario_csv(self):
+
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+
+        scenario_file = os.path.join(script_dir, f"initial_state_pool/evaluation_states_K{self.n_agents}_n10000.csv")
+
+        with open(scenario_file, 'r') as f:
+            csv_reader = csv.reader(f)
+
+            # Header includes description of fields. Unnecessary
+            header = next(csv_reader)
+
+            for row in csv_reader:
+                self.pre_loaded_scenarios.append(row)
+
+
+        
+    def reset(self, seed=None, options=None): # options is dictionary
         #if options is not None:
         #    self.render_mode = options["render_mode"]
-        
+
         if seed is not None:
             self._seed(seed=seed)
         
-        self.reset_world(self.world, self.np_random)
+        if self.pre_determined_scenario:
+            self.apply_pre_loaded_scenario()
+            self.scenario_index_counter = self.scenario_index_counter + 1
+        else:
+            self.reset_world(self.world, self.np_random)
 
         self.episode_counter += 1 # update the iteration counter - number of reseted envs
         
