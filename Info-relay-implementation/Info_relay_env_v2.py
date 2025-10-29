@@ -67,7 +67,7 @@ class Info_relay_env(ParallelEnv):
                  continuous_actions = True, one_hot_vector = False, antenna_used = True, 
                  com_used = True, num_messages = 1, base_always_transmitting = True, 
                  random_base_pose = True, observe_self = True, render_mode = None, curriculum_learning = False,
-                 pre_determined_scenario = True):
+                 pre_determined_scenario = False):
         #super().__init__()
         self.render_mode = render_mode
         pygame.init()
