@@ -63,7 +63,9 @@ class Info_relay_env(ParallelEnv):
                  a_max = 0.1, omega_max = np.pi/4, step_size = 1, max_cycles = 25, 
                  continuous_actions = True, one_hot_vector = False, antenna_used = True, 
                  com_used = True, num_messages = 1, base_always_transmitting = True, 
-                 random_base_pose = True, observe_self = True, render_mode = None, curriculum_learning = False):
+                 random_base_pose = True, observe_self = True, render_mode = None, curriculum_learning = False,
+                 pre_determined_scenario = []):
+        print("pre determined scenario: ", pre_determined_scenario)
         #super().__init__()
         self.render_mode = render_mode
         pygame.init()
@@ -98,7 +100,7 @@ class Info_relay_env(ParallelEnv):
 
         self.continuous_actions = continuous_actions # indicies if continous or discrete actions are used
         self.one_hot_vector = one_hot_vector # if continous - this shows if one hot vector or single value representation of actions (output from NN) are used
-
+        self.pre_determined_scenario = pre_determined_scenario
         self.antenna_used = antenna_used #OBS ändra när antennen ska styras igen
         self.com_used = com_used #OBS - communications can be turned of to test just the movement in different tasks
         self.observe_self = observe_self
@@ -386,16 +388,36 @@ class Info_relay_env(ParallelEnv):
             emitter.state.theta = 0.0 # TODO - maybe randomize?
             emitter.state.p_pos_history = []
 
+    def load_pre_determined_csv_scenario(self):
+        self.pre_determined_scenario
+        print("loading scenario with id:", self.pre_determined_scenario[0])
+        R = self.pre_determined_scenario[1] # distance between bases
+        R_com = 2 # communication distance (always equal to 1)
+        R_a = 3 # Not sure. Always 0
+        p_tx_x = 4 # This stuff has to do with base positions. Fuck that
+        p_tx_y = 5 # ^
+        p_rx_x = 6 # ^
+        p_rx_y = 7 # ^
+        jammer_x = 8 # Jammer position x
+        jammer_y = 9 # Jammer position y
+        jammer_dx = 10  # Jammer velocity x
+        jammer_dy = 11 # Jammer velocity y
+        agent1_x = 12 #agent position x
+        agent1_y = 13 # agent position y
+        agent1_phi = 14 # agent antenna direction
 
-    def reset(self, seed=None, options=None): # options is dictionary
         
+    def reset(self, seed=None, options=None): # options is dictionary
         #if options is not None:
         #    self.render_mode = options["render_mode"]
         
         if seed is not None:
             self._seed(seed=seed)
         
-        self.reset_world(self.world, self.np_random)
+        if self.pre_determined_scenario == []:
+            self.reset_world(self.world, self.np_random)
+        else:
+            self.load_pre_determined_csv_scenario()
 
         self.episode_counter += 1 # update the iteration counter - number of reseted envs
         
