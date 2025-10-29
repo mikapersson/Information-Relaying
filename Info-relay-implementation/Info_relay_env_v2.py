@@ -395,23 +395,26 @@ class Info_relay_env(ParallelEnv):
             emitter.state.p_pos_history = []
 
     def apply_pre_loaded_scenario(self):
+        """
+            Reset scenario based on csv file loaded via read_scenario_csv()
+        """
         print("loading scenario with id:", self.pre_loaded_scenarios[self.scenario_index_counter][0])
         scenario = self.pre_loaded_scenarios[self.scenario_index_counter]
         scenario = [float(entry) for entry in scenario]
         self.R = scenario[1] # distance between bases
-        R_com = 2 # communication distance (always equal to 1)
-        R_a = 3 # Not sure. Always 0
-        p_tx_x = 4 # This stuff has to do with base positions. Fuck that
-        p_tx_y = 5 # ^
-        p_rx_x = 6 # ^
-        p_rx_y = 7 # ^
-        jammer_x = 8 # Jammer position x
-        jammer_y = 9 # Jammer position y
-        jammer_dx = 10  # Jammer velocity x
-        jammer_dy = 11 # Jammer velocity y
-        agent1_x = 12 #agent position x
-        agent1_y = 13 # agent position y
-        agent1_phi = 14 # agent antenna direction
+        # R_com = 2 # communication distance (always equal to 1)
+        # R_a = 3 # Not sure. Always 0
+        # p_tx_x = 4 # This stuff has to do with base positions. Fuck that
+        # p_tx_y = 5 # ^
+        # p_rx_x = 6 # ^
+        # p_rx_y = 7 # ^
+        # jammer_x = 8 # Jammer position x
+        # jammer_y = 9 # Jammer position y
+        # jammer_dx = 10  # Jammer velocity x
+        # jammer_dy = 11 # Jammer velocity y
+        # agent1_x = 12 #agent position x
+        # agent1_y = 13 # agent position y
+        # agent1_phi = 14 # agent antenna direction
 
         base_positions = self.generate_base_positions(self.R)
         self.world.base_positions = base_positions
