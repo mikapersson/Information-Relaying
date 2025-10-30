@@ -890,8 +890,7 @@ class Info_relay_env(ParallelEnv):
             if (theta < - np.pi/2 or np.pi/2 < theta):
                 SNR = 0
             else: 
-                SNR = (1 + np.linalg.norm([np.cos(theta), np.sin(theta)])) / (
-                    np.linalg.norm(rel_pos))**2
+                SNR = SNR = np.linalg.norm([1 + np.cos(np.pi * np.sin(theta)), np.sin(np.pi * np.sin(theta))]) / (np.linalg.norm(rel_pos))**2
                 
             for jammer in jammers:
                 #Start jamming
