@@ -649,21 +649,80 @@ class Info_relay_env(ParallelEnv):
         return penalties
     
 
+    def compute_budget(self, K, R, sigma, gamma):
+        """
+        Compute the budget(w) as described in the prompt.
+
+        Args:
+            K (int): Number of agents
+            R (float): Distance between transmitter and receiver
+            sigma (float): Displacement size
+            gamma (float): Discount factor
+
+        Returns:
+            float: The computed budget(w)
+        """
+        Rcom = 1.0
+
+        # Compute T_sharp
+        T_sharp = int(np.floor(1.1 * R + 2 * Rcom) / sigma + K)
+
+        # Compute D_k for all agents
+        D = np.zeros(K)
+        for k in range(1, K+1):
+            if k == 1:
+                D[k-1] = 1.1 * R + 2 * Rcom
+            else:
+                D[k-1] = 0.1 * R + (K - k + 1) * Rcom
+
+        # Compute t_start_k and t_stop_k for all agents
+        t_start = np.zeros(K, dtype=int)
+        t_stop = np.zeros(K, dtype=int)
+        for k in range(1, K+1):
+            if k == 1:
+                t_start[k-1] = 0
+                t_stop[k-1] = int(np.ceil(D[0] / sigma))
+            else:
+                t_start[k-1] = int(np.floor((D[0] - D[k-1]) / sigma)) + (k - 1)
+                t_stop[k-1] = T_sharp - (k + 1)
+
+        # Compute budget(w)
+        budget = 0.0
+        for t in range(T_sharp):
+            gamma_t = gamma ** t
+            active_agents = sum(
+                t_start[k] <= t < t_stop[k] for k in range(K)
+            )
+            budget += gamma_t * sigma**2 * active_agents
+        budget = budget / (gamma ** T_sharp)
+
+        return budget, T_sharp, t_start, t_stop
+
+
     def global_reward(self):
-        """
-        Rewards given to all agents. Given by correctly delivering messages.
-        """
-        reward = 0
-        self.discount_factor = 0.99 # TODO OBS fixa som input till klassen!! - ska sättas en gång både till envet och experimentet
-
-        D_tot = (1 + 0.1*self.n_agents)*self.R + (2 + 0.5*self.n_agents*(self.n_agents - 1))*self.world.transmission_radius
-
-        T = (1.1*self.R + 2*self.world.transmission_radius)/self.a_max + self.n_agents
+        """ Kör Mikas funktion direkt - testar """
+        self.discount_factor = 0.99 
 
         if self.world.bases[1].message_buffer: # meddelandet har levererats (detta tidsteg)
-            reward = (1 - self.discount_factor**T)/(1 - self.discount_factor) * (D_tot/T)**2
+            return self.compute_budget(self.n_agents, self.R, self.a_max, self.discount_factor)[0]
+        else:
+            return 0
 
-        return reward 
+    # def global_reward(self):
+    #     """
+    #     Rewards given to all agents. Given by correctly delivering messages.
+    #     """
+    #     reward = 0
+    #     self.discount_factor = 0.99 # TODO OBS fixa som input till klassen!! - ska sättas en gång både till envet och experimentet
+
+    #     D_tot = (1 + 0.1*self.n_agents)*self.R + (2 + 0.5*self.n_agents*(self.n_agents - 1))*self.world.transmission_radius
+
+    #     T = (1.1*self.R + 2*self.world.transmission_radius)/self.a_max + self.n_agents
+
+    #     if self.world.bases[1].message_buffer: # meddelandet har levererats (detta tidsteg)
+    #         reward = (1 - self.discount_factor**T)/(1 - self.discount_factor) * (1/self.discount_factor**T) * (D_tot/(self.n_agents*T))**2
+
+    #     return reward 
 
     def bound(self, agent):
         """
