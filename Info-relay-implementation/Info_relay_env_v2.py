@@ -646,14 +646,14 @@ class Info_relay_env(ParallelEnv):
             penalties += abs(agent.action.u[2]**2*agent.radar_cost)
         else:
             if abs(agent.action.u[0]) == abs(agent.action.u[1]): # both are 0 or max_vel
-                penalties += abs(agent.action.u[0]**2*agent.movement_cost)
+                penalties += abs((agent.action.u[0]*agent.max_speed)**2*agent.movement_cost)
                 if eval_logger is not None:
-                    eval_logger.add_movement(abs(agent.action.u[0]))
+                    eval_logger.add_movement(abs(agent.action.u[0]*agent.max_speed))
             else:
-                penalties += abs(agent.action.u[0]**2*agent.movement_cost)
-                penalties += abs(agent.action.u[1]**2*agent.movement_cost)
+                penalties += abs((agent.action.u[0]*agent.max_speed)**2)
+                penalties += abs((agent.action.u[1]*agent.max_speed)**2)
                 if eval_logger is not None:
-                    eval_logger.add_movement(abs(agent.action.u[0]) + abs(agent.action.u[1]))
+                    eval_logger.add_movement((abs(agent.action.u[0]) + abs(agent.action.u[1]))*agent.max_speed)
             penalties += abs(agent.action.u[2]**2*agent.radar_cost)
 
         return penalties
