@@ -13,9 +13,9 @@ import csv
 
 # to be able to import from current directory in both linux and windows
 try:
-    from Info_relay_classes import Drone, Base, Emitter, World#, Message  
+    from Info_relay_classes import Drone, Base, Emitter, World, EvaluationLogger#, Message  
 except ImportError:
-    from .Info_relay_classes import Drone, Base, Emitter, World#, Message
+    from .Info_relay_classes import Drone, Base, Emitter, World, EvaluationLogger#, Message
 
 from gymnasium.utils import seeding
 
@@ -104,9 +104,13 @@ class Info_relay_env(ParallelEnv):
         self.one_hot_vector = one_hot_vector # if continous - this shows if one hot vector or single value representation of actions (output from NN) are used
         self.pre_determined_scenario = pre_determined_scenario
         if self.pre_determined_scenario:
+            self.evaluation_logger = EvaluationLogger()
             self.pre_loaded_scenarios = []
             self.scenario_index_counter = 0
+            self.evaluation_logger.update_episode_index(self.scenario_index_counter)
             self.read_scenario_csv()
+        else:
+            self.evaluation_logger = None
         self.antenna_used = antenna_used #OBS ändra när antennen ska styras igen
         self.com_used = com_used #OBS - communications can be turned of to test just the movement in different tasks
         self.observe_self = observe_self
@@ -492,8 +496,10 @@ class Info_relay_env(ParallelEnv):
             self._seed(seed=seed)
         
         if self.pre_determined_scenario:
+            self.evaluation_logger.write_episode()
             self.apply_pre_loaded_scenario()
             self.scenario_index_counter = self.scenario_index_counter + 1
+            self.evaluation_logger.update_episode_index(self.scenario_index_counter)
         else:
             self.reset_world(self.world, self.np_random)
 
@@ -629,7 +635,7 @@ class Info_relay_env(ParallelEnv):
         return {agent.name: False for agent in self.world.agents}
 
 
-    def calculate_action_penalties(self, agent):
+    def calculate_action_penalties(self, agent, eval_logger = None):
         """
         Calculate the penalties each drone recieves for actions. Movement and communication.
         """
@@ -641,9 +647,13 @@ class Info_relay_env(ParallelEnv):
         else:
             if abs(agent.action.u[0]) == abs(agent.action.u[1]): # both are 0 or max_vel
                 penalties += abs(agent.action.u[0]**2*agent.movement_cost)
+                if eval_logger is not None:
+                    eval_logger.add_movement(abs(agent.action.u[0]))
             else:
                 penalties += abs(agent.action.u[0]**2*agent.movement_cost)
                 penalties += abs(agent.action.u[1]**2*agent.movement_cost)
+                if eval_logger is not None:
+                    eval_logger.add_movement(abs(agent.action.u[0]) + abs(agent.action.u[1]))
             penalties += abs(agent.action.u[2]**2*agent.radar_cost)
 
         return penalties
@@ -765,8 +775,9 @@ class Info_relay_env(ParallelEnv):
         
         return None ## The entity does not exist
 
+
     
-    def communication_kernel(self):
+    def communication_kernel(self, eval_logger = None):
         """ Runs the communication kernel when the message buffer is just one boolean contaning one message without any meta data """
         # om bas-looparna tas bort:
         #base1 = self.world.bases[0]
@@ -788,6 +799,9 @@ class Info_relay_env(ParallelEnv):
                         agent.message_buffer = True
                         agent.state.c = 1 # not it will send continously 
                         recieved_message = True
+                        if eval_logger is not None:
+                            eval_logger.add_air_distance(base, agent)
+
 
             if recieved_message: # do not check agents if message recieved from base
                 continue
@@ -800,6 +814,8 @@ class Info_relay_env(ParallelEnv):
                     if self.check_signal_detection(SNR):
                         agent.message_buffer = True
                         agent.state.c = 1
+                        if eval_logger is not None:
+                            eval_logger.add_air_distance(other, agent)
                         continue
 
         for base in self.world.bases: # maybe remove loop - only look at the 2nd base
@@ -808,6 +824,8 @@ class Info_relay_env(ParallelEnv):
                     SNR = self.calculate_SNR(base, agent, self.world.emitters)
                     if self.check_signal_detection(SNR):
                         base.message_buffer = True # the game should end once this condition is met
+                        if eval_logger is not None:
+                            eval_logger.add_air_distance(agent, base)
                         continue
             for other in self.world.bases: # maybe remove loop - only look at the first base
                 if other.name == base.name:
@@ -816,6 +834,7 @@ class Info_relay_env(ParallelEnv):
                     SNR = self.calculate_SNR(base, other, self.world.emitters)
                     if self.check_signal_detection(SNR):
                         base.message_buffer = True
+                        eval_logger.add_air_distance(other, base)
                         continue
 
     

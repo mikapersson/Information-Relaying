@@ -1,6 +1,7 @@
 from copy import copy
 import math
 import numpy as np
+import csv
 
 from dataclasses import dataclass, field
 
@@ -8,7 +9,29 @@ from dataclasses import dataclass, field
 Taken from pettingzoo MPE and altered 
 """
 
-        
+class EvaluationLogger:
+    def __init__(self):
+        self.episode_movement = np.zeros(10000)
+        self.episode_air_distance = np.zeros(10000)
+        self.episode_index = None
+        self.f_movement = open('eval_movement', 'a')
+        self.f_air_distance = open('eval_air_distance', 'a')
+        self.writer_air_distance = csv.writer(self.f_air_distance)
+        self.writer_movement = csv.writer(self.f_movement)
+
+    def write_episode(self):
+        self.writer_air_distance.writerow([self.episode_index, self.episode_air_distance[self.episode_index]])
+        self.writer_movement.writerow([self.episode_index, self.episode_movement[self.episode_index]])
+
+    def update_episode_index(self, index):
+        self.episode_index = index
+
+    def add_movement(self, movement):
+        self.episode_movement[self.episode_index] += movement
+
+    def add_air_distance(self, sender, receiver):
+        distance = np.linalg.norm(sender.state.p_pos - receiver.state.p_pos)
+        self.episode_air_distance[self.episode_index] += distance
 
 class EntityState:  # physical/external base state of all entities
     def __init__(self):
