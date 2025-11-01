@@ -596,7 +596,8 @@ class Info_relay_env(ParallelEnv):
             total_action_penalties += self.calculate_action_penalties(agent)
 
         for agent in self.world.agents:
-            rewards[agent.name] = float(self.reward(agent, global_reward, total_action_penalties))
+            rewards[agent.name] = float(self.reward(agent, global_reward, total_action_penalties)) + agent.reward_bonus
+            agent.reward_bonus = 0
         
         terminations = self.terminate()
         #terminations = {agent.name: False for agent in self.world.agents}
@@ -797,7 +798,8 @@ class Info_relay_env(ParallelEnv):
                     SNR = self.calculate_SNR(agent, base, self.world.emitters)
                     if self.check_signal_detection(SNR):
                         agent.message_buffer = True
-                        agent.state.c = 1 # not it will send continously 
+                        agent.state.c = 1 # not it will send continously
+                        agent.reward_bonus += 0.25
                         recieved_message = True
                         if eval_logger is not None:
                             eval_logger.add_air_distance(base, agent)
@@ -814,6 +816,8 @@ class Info_relay_env(ParallelEnv):
                     if self.check_signal_detection(SNR):
                         agent.message_buffer = True
                         agent.state.c = 1
+                        agent.reward_bonus += 0.25
+                        other.reward_bonus += 0.25
                         if eval_logger is not None:
                             eval_logger.add_air_distance(other, agent)
                         continue
@@ -824,6 +828,7 @@ class Info_relay_env(ParallelEnv):
                     SNR = self.calculate_SNR(base, agent, self.world.emitters)
                     if self.check_signal_detection(SNR):
                         base.message_buffer = True # the game should end once this condition is met
+                        agent.reward_bonus += 1.0
                         if eval_logger is not None:
                             eval_logger.add_air_distance(agent, base)
                         continue
