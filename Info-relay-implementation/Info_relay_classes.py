@@ -234,7 +234,7 @@ class Drone(Entity):  # properties of agent entities
         # a list of the possible messages - list of lists (messages)
         self.message_buffer = []#np.zeros([self.message_buffer_size, 5]) 
 
-        self.movement_cost = 0.05 # the cost of movement - scales with magnitude of movement 
+        self.movement_cost = 0.5 # the cost of movement - scales with magnitude of movement 
         self.radar_cost = 0.02 # cost of changing direction of radar
         self.transmission_cost = 0.001 # cost of transmitting a message 
 
