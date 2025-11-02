@@ -82,7 +82,12 @@ def run_env(stdscr=None):
 
             obs, reward, term, trunc, info = env.step(actions)
 
-            print(f"Reward: {reward['agent_0']:.6f}", flush = True)
+            print(f"Reward: {reward['agent_0']:.4f} \n", flush = True)
+            print(f"Observation: {obs} \n", flush = True)
+            with open ("out.txt", 'a') as f:
+                f.write(f"Reward: {reward['agent_0']:.4f} \n")
+                f.write(f"Observation: {obs} \n")
+                f.flush()
 
             if term.get("agent_0"):
                 print("\nEpisode ended.")

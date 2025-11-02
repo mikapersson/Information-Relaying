@@ -59,7 +59,7 @@ alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 class Info_relay_env(ParallelEnv):
     metadata = {
         "name": "Info_relay_v2",
-        "render_fps": 1
+        "render_fps": 5
     }
 
     def __init__(self, num_agents = 1, num_bases = 2, num_emitters = 0, world_size = 1,
@@ -794,7 +794,7 @@ class Info_relay_env(ParallelEnv):
             recieved_message = False
 
             for base in self.world.bases: # really dont need to loop through the bases as only one base is sending now - only check the first base
-                if base.state.c == 1: # if sending
+                if base.state.c == 1 and not agent.state.c == 1: # if sending
                     SNR = self.calculate_SNR(agent, base, self.world.emitters)
                     if self.check_signal_detection(SNR):
                         agent.message_buffer = True
@@ -811,7 +811,7 @@ class Info_relay_env(ParallelEnv):
             for other in self.world.agents: # the agents are always transmitting
                 if other.name == agent.name:
                     continue
-                if other.message_buffer:
+                if other.message_buffer and not agent.message_buffer:
                     SNR = self.calculate_SNR(agent, other, self.world.emitters)
                     if self.check_signal_detection(SNR):
                         agent.message_buffer = True
@@ -824,7 +824,7 @@ class Info_relay_env(ParallelEnv):
 
         for base in self.world.bases: # maybe remove loop - only look at the 2nd base
             for agent in self.world.agents:
-                if agent.message_buffer:
+                if agent.message_buffer and base.state.c != 1:
                     SNR = self.calculate_SNR(base, agent, self.world.emitters)
                     if self.check_signal_detection(SNR):
                         base.message_buffer = True # the game should end once this condition is met
