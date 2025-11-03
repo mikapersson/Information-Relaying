@@ -59,7 +59,7 @@ alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 class Info_relay_env(ParallelEnv):
     metadata = {
         "name": "Info_relay_v2",
-        "render_fps": 1
+        "render_fps": 5
     }
 
     def __init__(self, num_agents = 1, num_bases = 2, num_emitters = 0, world_size = 1,
@@ -596,7 +596,8 @@ class Info_relay_env(ParallelEnv):
             total_action_penalties += self.calculate_action_penalties(agent)
 
         for agent in self.world.agents:
-            rewards[agent.name] = float(self.reward(agent, global_reward, total_action_penalties))
+            rewards[agent.name] = float(self.reward(agent, global_reward, total_action_penalties)) + agent.reward_bonus
+            agent.reward_bonus = 0
         
         terminations = self.terminate()
         #terminations = {agent.name: False for agent in self.world.agents}
@@ -793,11 +794,12 @@ class Info_relay_env(ParallelEnv):
             recieved_message = False
 
             for base in self.world.bases: # really dont need to loop through the bases as only one base is sending now - only check the first base
-                if base.state.c == 1: # if sending
+                if base.state.c == 1 and not agent.state.c == 1: # if sending
                     SNR = self.calculate_SNR(agent, base, self.world.emitters)
                     if self.check_signal_detection(SNR):
                         agent.message_buffer = True
-                        agent.state.c = 1 # not it will send continously 
+                        agent.state.c = 1 # not it will send continously
+                        agent.reward_bonus += 0.25
                         recieved_message = True
                         if eval_logger is not None:
                             eval_logger.add_air_distance(base, agent)
@@ -809,21 +811,24 @@ class Info_relay_env(ParallelEnv):
             for other in self.world.agents: # the agents are always transmitting
                 if other.name == agent.name:
                     continue
-                if other.message_buffer:
+                if other.message_buffer and not agent.message_buffer:
                     SNR = self.calculate_SNR(agent, other, self.world.emitters)
                     if self.check_signal_detection(SNR):
                         agent.message_buffer = True
                         agent.state.c = 1
+                        agent.reward_bonus += 0.25
+                        other.reward_bonus += 0.25
                         if eval_logger is not None:
                             eval_logger.add_air_distance(other, agent)
                         continue
 
         for base in self.world.bases: # maybe remove loop - only look at the 2nd base
             for agent in self.world.agents:
-                if agent.message_buffer:
+                if agent.message_buffer and base.state.c != 1:
                     SNR = self.calculate_SNR(base, agent, self.world.emitters)
                     if self.check_signal_detection(SNR):
                         base.message_buffer = True # the game should end once this condition is met
+                        agent.reward_bonus += 1.0
                         if eval_logger is not None:
                             eval_logger.add_air_distance(agent, base)
                         continue

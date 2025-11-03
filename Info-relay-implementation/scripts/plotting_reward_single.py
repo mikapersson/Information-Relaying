@@ -8,9 +8,9 @@ mpl.rcParams['font.size'] = 14  # global font size
 
 # ====== Configuration ======
 scenario = "1_agent_one_way_larger_distances"
-mode     = "collection"
+mode     = "eval"
 
-folder   = f"simulation_data/{scenario}"
+folder   = f"/home/u087303/relay/Information-Relaying/Info-relay-implementation/outputs/2025-11-02/10-45-28/mappo_info_relay_mlp__6c5871ef_25_11_02-10_45_29/mappo_info_relay_mlp__6c5871ef_25_11_02-10_45_29/scalars"
 save_fn  = f"plots_new/{scenario}_{mode}_reward_plot.pdf"
 
 show_min_max = True
@@ -19,7 +19,7 @@ show_ci90    = False
 zoom_in = False
 v_line = False
 
-UPPER_YLIM = 100 # 100
+UPPER_YLIM = 5 # 100
 LOWER_YLIM = None # 0
 
 # Select only a part of the data to plot (set to None to disable)
