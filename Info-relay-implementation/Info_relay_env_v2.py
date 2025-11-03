@@ -66,8 +66,8 @@ class Info_relay_env(ParallelEnv):
                  a_max = 0.1, omega_max = np.pi/4, step_size = 1, max_cycles = 25, 
                  continuous_actions = True, one_hot_vector = False, antenna_used = True, 
                  com_used = True, num_messages = 1, base_always_transmitting = True, 
-                 random_base_pose = True, observe_self = True, render_mode = None, curriculum_learning = False,
-                 pre_determined_scenario = False):
+                 observe_self = True, render_mode = None,
+                 pre_determined_scenario = False, num_CL_episodes = 0):
         #super().__init__()
         self.render_mode = render_mode
         pygame.init()
@@ -89,6 +89,8 @@ class Info_relay_env(ParallelEnv):
         self.SNR_threshold = 1 # threshold for signal detection
 
         self.world_size = world_size # the world will be created as square. - maybe not used now
+
+        self.num_CL_episodes = num_CL_episodes
 
         self.h = step_size
         self.max_iter = max_cycles # maximum amount of iterations before the world truncates - OBS renamed the inupt to more closely match benchmarl
@@ -117,10 +119,6 @@ class Info_relay_env(ParallelEnv):
         self.angle_coord_rotation = 0 # declared as a class variabel to be reach in observation and in setting actions
 
         self.base_always_transmitting = base_always_transmitting # decides if the base is sending every time step. If false, the base send sporadically
-
-        self.random_base_pose = random_base_pose # if the bases starting positions are random or always located on the x-axis
-
-        self.curriculum_learning = curriculum_learning
 
         self.possible_agents = [agent.name for agent in self.world.agents] 
 
@@ -311,12 +309,12 @@ class Info_relay_env(ParallelEnv):
 
     def get_max_base_distance(self, world):
         """ The function return the meximum allowed distance between the bases - depends on if curriculum learning is used or not """
-        if self.curriculum_learning:
-            R_min = self.transmission_radius_bases * self.n_agents
-            pot_rmax = R_min + self.transmission_radius_bases * (self.n_agents + 4) * self.episode_counter/1000 # TODO OBS: kolla djupare på denna parametern
-            R_max = min(R_min, pot_rmax)
-        else:
-            R_max = self.transmission_radius_bases * (self.n_agents + 4)
+        #if self.curriculum_learning: - gammal CL implementation
+            #R_min = self.transmission_radius_bases * self.n_agents
+            #pot_rmax = R_min + self.transmission_radius_bases * (self.n_agents + 4) * self.episode_counter/1000
+            #R_max = min(R_min, pot_rmax)
+        #else:
+        R_max = self.transmission_radius_bases * (self.n_agents + 4)
         
         return R_max
     
@@ -596,7 +594,10 @@ class Info_relay_env(ParallelEnv):
             total_action_penalties += self.calculate_action_penalties(agent)
 
         for agent in self.world.agents:
-            rewards[agent.name] = float(self.reward(agent, global_reward, total_action_penalties)) + agent.reward_bonus
+            if self.episode_counter < self.num_CL_episodes: # hjälpreward 
+                rewards[agent.name] = float(self.reward(agent, global_reward, total_action_penalties)) + agent.reward_bonus
+            else: 
+                rewards[agent.name] = float(self.reward(agent, global_reward, total_action_penalties))
             agent.reward_bonus = 0
         
         terminations = self.terminate()
