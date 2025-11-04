@@ -67,7 +67,7 @@ def run_env(stdscr=None):
         num_agents=1, num_emitters=0, num_bases=2, max_cycles=100,
         com_used=True, antenna_used=False, continuous_actions=False,
         num_messages=1, render_mode="human",
-        step_size=1, a_max=0.1, num_CL_episodes = 0
+        step_size=1, a_max=0.1, num_CL_episodes = 0, num_r_help_episodes = 0
     )
 
     obs, info = env.reset()

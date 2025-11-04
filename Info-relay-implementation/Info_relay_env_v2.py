@@ -67,7 +67,7 @@ class Info_relay_env(ParallelEnv):
                  continuous_actions = True, one_hot_vector = False, antenna_used = True, 
                  com_used = True, num_messages = 1, base_always_transmitting = True, 
                  observe_self = True, render_mode = None,
-                 pre_determined_scenario = False, num_CL_episodes = 0):
+                 pre_determined_scenario = False, num_CL_episodes = 0, num_r_help_episodes = 0):
         #super().__init__()
         self.render_mode = render_mode
         pygame.init()
@@ -90,7 +90,8 @@ class Info_relay_env(ParallelEnv):
 
         self.world_size = world_size # the world will be created as square. - maybe not used now
 
-        self.num_CL_episodes = num_CL_episodes
+        self.num_CL_episodes = num_CL_episodes # 0 means deactivated
+        self.num_r_help_episodes = num_r_help_episodes
 
         self.h = step_size
         self.max_iter = max_cycles # maximum amount of iterations before the world truncates - OBS renamed the inupt to more closely match benchmarl
@@ -622,7 +623,7 @@ class Info_relay_env(ParallelEnv):
             total_action_penalties += self.calculate_action_penalties(agent)
 
         for agent in self.world.agents:
-            if self.episode_counter < self.num_CL_episodes: # hjälpreward 
+            if self.episode_counter < self.num_r_help_episodes: # hjälpreward 
                 rewards[agent.name] = float(self.reward(agent, global_reward, total_action_penalties)) + agent.reward_bonus
             else: 
                 rewards[agent.name] = float(self.reward(agent, global_reward, total_action_penalties))
