@@ -271,13 +271,41 @@ class Info_relay_env(ParallelEnv):
         The center of the disk is the the middlepoint of the bases.  
         """
         positions = []
-    
         center = np.mean(base_positions, axis=0)  # Midpoint of bases
-        for i in range(n_entities):
-            radius_agent = np.sqrt(np_random.uniform(0, 1)) * spawn_radius  # Random radius
-            angle = np_random.uniform(0, 2 * np.pi)  # Random angle
-            offset = np.array([radius_agent * np.cos(angle), radius_agent * np.sin(angle)])  # Convert to Cartesian
-            positions.append(center + offset)
+
+        if self.num_CL_episodes > self.episode_counter: # when CL is used
+            # Fraction done
+            progress = self.episode_counter / self.num_CL_episodes
+
+            # Height progression
+            min_height = (spawn_radius / 4) * 2       
+            max_height = spawn_radius * 2             
+            current_height = min_height + progress * (max_height - min_height)
+               
+            half_height = current_height / 2
+
+            for _ in range(n_entities):
+                while True:
+                    # Sample point in disk
+                    r = np.sqrt(np_random.uniform()) * spawn_radius
+                    theta = np_random.uniform(0, 2 * np.pi)
+                    offset = np.array([r*np.cos(theta), r*np.sin(theta)])
+                    candidate = center + offset
+
+                    dx = candidate[0] - center[0]
+                    dy = candidate[1] - center[1]
+
+                    # Accept only if inside rectangle
+                    if (-spawn_radius <= dx <= spawn_radius) and (-half_height <= dy <= half_height):
+                        positions.append(candidate)
+                        break
+
+        else:
+            for i in range(n_entities):
+                radius_agent = np.sqrt(np_random.uniform(0, 1)) * spawn_radius  # Random radius
+                angle = np_random.uniform(0, 2 * np.pi)  # Random angle
+                offset = np.array([radius_agent * np.cos(angle), radius_agent * np.sin(angle)])  # Convert to Cartesian
+                positions.append(center + offset)
 
         return np.array(positions)
     
