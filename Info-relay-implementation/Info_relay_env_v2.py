@@ -337,12 +337,8 @@ class Info_relay_env(ParallelEnv):
         return positions
 
     def get_max_base_distance(self, world):
-        """ The function return the meximum allowed distance between the bases - depends on if curriculum learning is used or not """
-        #if self.curriculum_learning: - gammal CL implementation
-            #R_min = self.transmission_radius_bases * self.n_agents
-            #pot_rmax = R_min + self.transmission_radius_bases * (self.n_agents + 4) * self.episode_counter/1000
-            #R_max = min(R_min, pot_rmax)
-        #else:
+        """ The function return the maximum allowed distance between the bases """
+    
         R_max = self.transmission_radius_bases * (self.n_agents + 4)
         
         return R_max
