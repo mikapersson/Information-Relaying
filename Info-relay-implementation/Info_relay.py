@@ -66,8 +66,8 @@ def run_env(stdscr=None):
     env = Info_relay_env(
         num_agents=1, num_emitters=0, num_bases=2, max_cycles=100,
         com_used=True, antenna_used=False, continuous_actions=False,
-        num_messages=1, random_base_pose=False, render_mode="human",
-        step_size=1, a_max=0.1,
+        num_messages=1, render_mode="human",
+        step_size=1, a_max=0.1, num_CL_episodes = 0, num_r_help_episodes = 0
     )
 
     obs, info = env.reset()

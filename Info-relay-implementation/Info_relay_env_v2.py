@@ -66,8 +66,8 @@ class Info_relay_env(ParallelEnv):
                  a_max = 0.1, omega_max = np.pi/4, step_size = 1, max_cycles = 25, 
                  continuous_actions = True, one_hot_vector = False, antenna_used = True, 
                  com_used = True, num_messages = 1, base_always_transmitting = True, 
-                 random_base_pose = True, observe_self = True, render_mode = None, curriculum_learning = False,
-                 pre_determined_scenario = False):
+                 observe_self = True, render_mode = None,
+                 pre_determined_scenario = False, num_CL_episodes = 0, num_r_help_episodes = 0):
         #super().__init__()
         self.render_mode = render_mode
         pygame.init()
@@ -89,6 +89,9 @@ class Info_relay_env(ParallelEnv):
         self.SNR_threshold = 1 # threshold for signal detection
 
         self.world_size = world_size # the world will be created as square. - maybe not used now
+
+        self.num_CL_episodes = num_CL_episodes # 0 means deactivated
+        self.num_r_help_episodes = num_r_help_episodes
 
         self.h = step_size
         self.max_iter = max_cycles # maximum amount of iterations before the world truncates - OBS renamed the inupt to more closely match benchmarl
@@ -117,10 +120,6 @@ class Info_relay_env(ParallelEnv):
         self.angle_coord_rotation = 0 # declared as a class variabel to be reach in observation and in setting actions
 
         self.base_always_transmitting = base_always_transmitting # decides if the base is sending every time step. If false, the base send sporadically
-
-        self.random_base_pose = random_base_pose # if the bases starting positions are random or always located on the x-axis
-
-        self.curriculum_learning = curriculum_learning
 
         self.possible_agents = [agent.name for agent in self.world.agents] 
 
@@ -273,13 +272,41 @@ class Info_relay_env(ParallelEnv):
         The center of the disk is the the middlepoint of the bases.  
         """
         positions = []
-    
         center = np.mean(base_positions, axis=0)  # Midpoint of bases
-        for i in range(n_entities):
-            radius_agent = np.sqrt(np_random.uniform(0, 1)) * spawn_radius  # Random radius
-            angle = np_random.uniform(0, 2 * np.pi)  # Random angle
-            offset = np.array([radius_agent * np.cos(angle), radius_agent * np.sin(angle)])  # Convert to Cartesian
-            positions.append(center + offset)
+
+        if self.num_CL_episodes > self.episode_counter: # when CL is used
+            # Fraction done
+            progress = self.episode_counter / self.num_CL_episodes
+
+            # Height progression
+            min_height = (spawn_radius / 4) * 2       
+            max_height = spawn_radius * 2             
+            current_height = min_height + progress * (max_height - min_height)
+               
+            half_height = current_height / 2
+
+            for _ in range(n_entities):
+                while True:
+                    # Sample point in disk
+                    r = np.sqrt(np_random.uniform()) * spawn_radius
+                    theta = np_random.uniform(0, 2 * np.pi)
+                    offset = np.array([r*np.cos(theta), r*np.sin(theta)])
+                    candidate = center + offset
+
+                    dx = candidate[0] - center[0]
+                    dy = candidate[1] - center[1]
+
+                    # Accept only if inside rectangle
+                    if (-spawn_radius <= dx <= spawn_radius) and (-half_height <= dy <= half_height):
+                        positions.append(candidate)
+                        break
+
+        else:
+            for i in range(n_entities):
+                radius_agent = np.sqrt(np_random.uniform(0, 1)) * spawn_radius  # Random radius
+                angle = np_random.uniform(0, 2 * np.pi)  # Random angle
+                offset = np.array([radius_agent * np.cos(angle), radius_agent * np.sin(angle)])  # Convert to Cartesian
+                positions.append(center + offset)
 
         return np.array(positions)
     
@@ -310,13 +337,9 @@ class Info_relay_env(ParallelEnv):
         return positions
 
     def get_max_base_distance(self, world):
-        """ The function return the meximum allowed distance between the bases - depends on if curriculum learning is used or not """
-        if self.curriculum_learning:
-            R_min = self.transmission_radius_bases * self.n_agents
-            pot_rmax = R_min + self.transmission_radius_bases * (self.n_agents + 4) * self.episode_counter/1000 # TODO OBS: kolla djupare på denna parametern
-            R_max = min(R_min, pot_rmax)
-        else:
-            R_max = self.transmission_radius_bases * (self.n_agents + 4)
+        """ The function return the maximum allowed distance between the bases """
+    
+        R_max = self.transmission_radius_bases * (self.n_agents + 4)
         
         return R_max
     
@@ -596,7 +619,10 @@ class Info_relay_env(ParallelEnv):
             total_action_penalties += self.calculate_action_penalties(agent)
 
         for agent in self.world.agents:
-            rewards[agent.name] = float(self.reward(agent, global_reward, total_action_penalties)) + agent.reward_bonus
+            if self.episode_counter < self.num_r_help_episodes: # hjälpreward 
+                rewards[agent.name] = float(self.reward(agent, global_reward, total_action_penalties)) + agent.reward_bonus
+            else: 
+                rewards[agent.name] = float(self.reward(agent, global_reward, total_action_penalties))
             agent.reward_bonus = 0
         
         terminations = self.terminate()
