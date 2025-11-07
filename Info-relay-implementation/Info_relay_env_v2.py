@@ -66,7 +66,7 @@ class Info_relay_env(ParallelEnv):
                  a_max = 0.1, omega_max = np.pi/4, step_size = 1, max_cycles = 25, 
                  continuous_actions = True, one_hot_vector = False, antenna_used = True, 
                  com_used = True, num_messages = 1, base_always_transmitting = True, 
-                 observe_self = True, render_mode = None,
+                 observe_self = True, render_mode = None, using_half_velocity = False,
                  pre_determined_scenario = False, num_CL_episodes = 0, num_r_help_episodes = 0):
         #super().__init__()
         self.render_mode = render_mode
@@ -92,6 +92,8 @@ class Info_relay_env(ParallelEnv):
 
         self.num_CL_episodes = num_CL_episodes # 0 means deactivated
         self.num_r_help_episodes = num_r_help_episodes
+
+        self.using_half_velocity = using_half_velocity # if the agents are able to choose from v_max and v_max/2
 
         self.h = step_size
         self.max_iter = max_cycles # maximum amount of iterations before the world truncates - OBS renamed the inupt to more closely match benchmarl
@@ -182,24 +184,43 @@ class Info_relay_env(ParallelEnv):
                 }
 
         else:
-            # chose the number of discretized actions (ex velocity: [-max, 0, +max])
-            num_velocity_actions = 3
-            num_angle_actions = 3 # should be atleast 3 (and uneven) if used
-            
-            if not self.antenna_used: # the agents do not use the antenna - isotropic transmission
+
+            if using_half_velocity:
+                num_velocity_actions = 5
+                # Define the actual velocity magnitudes (for checking combinations)
+                velocity_values = [0.0, -1.0, 1.0, -0.5, 0.5]  # normalized by v_max
+            else:
+                num_velocity_actions = 3
+                velocity_values = [0.0, -1.0, 1.0]
+
+            num_angle_actions = 3  # should be at least 3 (and odd) if used
+
+            if not self.antenna_used:  # the agents do not use the antenna - isotropic transmission
                 num_angle_actions = 1
-            
-            # Here we combine the different actions into one single output - many actions that have to be 'decoded'
-            # used later to retrieve the correct action index for each major action type
-            
-            self.different_discrete_actions = [num_velocity_actions, num_velocity_actions,
-                                               num_angle_actions]
-            
-            self.action_mapping_dict = {i: list(comb) for i, comb in enumerate(itertools.product(*map(range, self.different_discrete_actions)))}
-            
-            self.action_spaces = {agent.name: spaces.Discrete(
-                num_velocity_actions**2 * num_angle_actions
-            ) for agent in self.world.agents}
+            self.different_discrete_actions = [range(num_velocity_actions),
+                                   range(num_velocity_actions),
+                                   range(num_angle_actions)]
+
+            all_combinations = list(itertools.product(*self.different_discrete_actions))
+
+            # Filter out disallowed combinations
+            allowed_combinations = []
+            for vx_idx, vy_idx, angle_idx in all_combinations:
+                vx = velocity_values[vx_idx]
+                vy = velocity_values[vy_idx]
+
+                # Disallow when one is full (1.0) and the other is half (0.5)
+                if (abs(vx) == 1.0 and abs(vy) == 0.5) or (abs(vx) == 0.5 and abs(vy) == 1.0):
+                    continue
+
+                allowed_combinations.append((vx_idx, vy_idx, angle_idx))
+
+            self.action_mapping_dict = {i: list(comb) for i, comb in enumerate(allowed_combinations)}
+
+            self.action_spaces = {
+                agent.name: spaces.Discrete(len(self.action_mapping_dict))
+                for agent in self.world.agents
+            }
 
         self.transmission_radius_bases = self.calculate_transmission_radius(self.world.bases[0])
         self.transmission_radius_drones = self.calculate_transmission_radius(self.world.agents[0])
@@ -563,6 +584,16 @@ class Info_relay_env(ParallelEnv):
             agent.action.u[2] = actions[2]*self.omega_max
             if actions[2] == 2:
                 agent.action.u[2] = -self.omega_max
+
+        # if v_max/2 is a possible:
+        if actions[0] == 3:
+            agent.action.u[0] = self.a_max/2
+        if actions[0] == 4: 
+            agent.action.u[0] = -self.a_max/2
+        if actions[1] == 3:
+            agent.action.u[1] = self.a_max/2
+        if actions[1] == 4: 
+            agent.action.u[1] = -self.a_max/2
 
 
     # sets action when all outputs are continuous

@@ -66,7 +66,7 @@ def run_env(stdscr=None):
     env = Info_relay_env(
         num_agents=1, num_emitters=0, num_bases=2, max_cycles=100,
         com_used=True, antenna_used=False, continuous_actions=False,
-        num_messages=1, render_mode="human",
+        num_messages=1, render_mode="human", using_half_velocity=True,
         step_size=1, a_max=0.1, num_CL_episodes = 0, num_r_help_episodes = 0
     )
 
@@ -82,8 +82,8 @@ def run_env(stdscr=None):
 
             obs, reward, term, trunc, info = env.step(actions)
 
-            print(f"Reward: {reward['agent_0']:.4f} \n", flush = True)
-            print(f"Observation: {obs} \n", flush = True)
+            #print(f"Reward: {reward['agent_0']:.4f} \n", flush = True)
+            #print(f"Observation: {obs} \n", flush = True)
             with open ("out.txt", 'a') as f:
                 f.write(f"Reward: {reward['agent_0']:.4f} \n")
                 f.write(f"Observation: {obs} \n")
