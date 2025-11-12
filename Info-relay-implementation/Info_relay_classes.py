@@ -15,17 +15,13 @@ class EvaluationLogger:
         self.episode_air_distance = np.zeros(10000 + 1)
         self.value=np.zeros(10000 + 1)
         self.episode_index = None
-        self.f_movement = open('eval_movement', 'a')
-        self.f_air_distance = open('eval_air_distance', 'a')
-        self.f_value = open('eval_value', 'a')
-        self.writer_air_distance = csv.writer(self.f_air_distance)
-        self.writer_movement = csv.writer(self.f_movement)
-        self.writer_value = csv.writer(self.f_value)
+        # idx, success, R, value, budget, sum_distance, air_distance, delivery_time, directed_transmission_bool, K, file
+        self.f_eval = open('evaluation_log', 'w')
+        self.writer_eval = csv.writer(self.f_eval)
+        self.writer_eval.writerow(["idx", "sucess", "R", "value", "budget", "sum_distance", "air_distance", "delivery_time", "directed_transmission", "K", "file"])
 
     def write_episode(self):
-        self.writer_air_distance.writerow([self.episode_index, self.episode_air_distance[self.episode_index]])
-        self.writer_movement.writerow([self.episode_index, self.episode_movement[self.episode_index]])
-        self.writer_value.writerow([self.episode_index, self.value[self.episode_index]])
+        self.writer_eval.writerow([self.episode_index, True, 1.0, self.value[self.episode_index], 10.0, self.episode_movement[self.episode_index], self.episode_air_distance[self.episode_index], 150, False, 3, "file.csv"])
 
     def update_episode_index(self, index):
         self.episode_index = index
