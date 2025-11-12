@@ -67,7 +67,14 @@ class Info_relay_env(ParallelEnv):
                  continuous_actions = True, one_hot_vector = False, antenna_used = True, 
                  com_used = True, num_messages = 1, base_always_transmitting = True, 
                  observe_self = True, render_mode = None, using_half_velocity = False,
-                 pre_determined_scenario = False, num_CL_episodes = 0, num_r_help_episodes = 0):
+                 pre_determined_scenario = False, num_CL_episodes = 0, num_r_help_episodes = 0,
+                 evaluating = True):
+        
+        #if evaluating: # if evaluating is run turn of all help - not automatic yet
+        #    num_CL_episodes = 0
+        #    num_r_help_episodes = 0
+        
+
         #super().__init__()
         self.render_mode = render_mode
         pygame.init()
@@ -1002,9 +1009,18 @@ class Info_relay_env(ParallelEnv):
     def full_relative_observation(self, agent):
         # Observing relative positions of all bases and agents (and the enemy)
         base_pos = [base.state.p_pos - agent.state.p_pos for base in self.world.bases]
+
+        if self.num_emitters > 0: # TODO - should the velocity be observed aswell?? KOLLA UPP
+            emitter_pos = [emitter.state.p_pos - agent.state.p_pos for emitter in self.world.emitters]
+
         other_pos = [other.state.p_pos - agent.state.p_pos for other in self.world.agents if other is not agent]
-        if self.observe_self:
+
+        if self.observe_self and self.num_emitters > 0:
+            physical_observation = np.concatenate([agent.state.p_pos] + base_pos + emitter_pos + other_pos)
+        elif self.observe_self:
             physical_observation = np.concatenate([agent.state.p_pos] + base_pos + other_pos)
+        elif self.num_emitters > 0:
+            physical_observation = np.concatenate(base_pos + emitter_pos + other_pos)
         else:
             physical_observation = np.concatenate(base_pos + other_pos)
 
@@ -1027,11 +1043,52 @@ class Info_relay_env(ParallelEnv):
         return np.concatenate([physical_observation, communication_observation])
 
 
-    def partial_observation(self, agent):
+    def observation_based_on_range(self, agent):
         """
-        Here the partial observation model will be implemenetd later on
+        This observation function observes all entities but orders all agents based on the range to that agent. 
+        The closest agents is "earlier" in the input layer.
         """
-        pass
+        # Observing relative positions of all bases and agents (and the enemy)
+
+        # Deciding the order of the agents
+
+        base_pos = [base.state.p_pos - agent.state.p_pos for base in self.world.bases]
+
+        others = [other for other in self.world.agents if other is not agent]
+        distances = [np.linalg.norm(other.state.p_pos - agent.state.p_pos) for other in others]
+
+        sorted_others = [x for _, x in sorted(zip(distances, others), key=lambda pair: pair[0])]
+
+        if self.num_emitters > 0: # TODO - should the velocity be observed aswell?? KOLLA UPP
+            emitter_pos = [emitter.state.p_pos - agent.state.p_pos for emitter in self.world.emitters]
+
+        other_pos = [other.state.p_pos - agent.state.p_pos for other in sorted_others]
+
+        if self.observe_self and self.num_emitters > 0:
+            physical_observation = np.concatenate([agent.state.p_pos] + base_pos + emitter_pos + other_pos)
+        elif self.observe_self:
+            physical_observation = np.concatenate([agent.state.p_pos] + base_pos + other_pos)
+        elif self.num_emitters > 0:
+            physical_observation = np.concatenate(base_pos + emitter_pos + other_pos)
+        else:
+            physical_observation = np.concatenate(base_pos + other_pos)
+
+        if self.antenna_used: # TODO - ändra till relativa antennorienteringar för andra agenter
+            own_antenna_direction = agent.state.theta
+            antenna_directions = [other.state.theta for other in sorted_others]
+            all_antenna_directions = [own_antenna_direction] + antenna_directions
+            physical_observation = np.concatenate([physical_observation, all_antenna_directions])
+
+
+        communication_observation = []
+        communication_observation.append(agent.message_buffer)  # its own observation is seperate - so the policy singels out the correct input corresponding to itself
+    
+        for other in sorted_others:  
+                communication_observation.append(other.message_buffer)
+
+    
+        # Return one flat observation array
+        return np.concatenate([physical_observation, communication_observation])
 
     def simple_observation(self, agent):
         """Observation in simple games without communication"""
@@ -1062,7 +1119,7 @@ class Info_relay_env(ParallelEnv):
     
     def observe(self, agent): # these could be included in the Scenario class together with world make/reset
         return self.full_relative_observation(agent)
-        #return self.simple_observation(agent)
+        #return self.observation_based_on_range(agent)
 
     #
     def observe_all(self):
