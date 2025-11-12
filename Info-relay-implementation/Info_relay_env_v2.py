@@ -518,15 +518,17 @@ class Info_relay_env(ParallelEnv):
     def read_scenario_csv(self):
 
         script_dir = os.path.dirname(os.path.abspath(__file__))
-
-        scenario_file = os.path.join(script_dir, f"initial_state_pool/evaluation_states_K{self.n_agents}_n10000.csv")
+        file_path = f"initial_state_pool/evaluation_states_K{self.n_agents}_n10000.csv"
+        scenario_file = os.path.join(script_dir, file_path)
+        print("Pre-load scenario from file: ", file_path)
 
         with open(scenario_file, 'r') as f:
             csv_reader = csv.reader(f)
 
             # Header includes description of fields. Unnecessary
-            header = next(csv_reader)
+            # header = next(csv_reader)
 
+            # Let's have index 0 intentionally as header, to make the scenarios 1-indexed
             for row in csv_reader:
                 self.pre_loaded_scenarios.append(row)
 
@@ -540,10 +542,11 @@ class Info_relay_env(ParallelEnv):
             self._seed(seed=seed)
         
         if self.pre_determined_scenario:
-            self.evaluation_logger.write_episode()
-            self.apply_pre_loaded_scenario()
-            self.scenario_index_counter = self.scenario_index_counter + 1
-            self.evaluation_logger.update_episode_index(self.scenario_index_counter)
+            if self.scenario_index_counter > 0:
+                self.apply_pre_loaded_scenario()
+            else:
+                # I have no fucking idea
+                self.reset_world(self.world, self.np_random)
         else:
             self.reset_world(self.world, self.np_random)
 
@@ -649,12 +652,16 @@ class Info_relay_env(ParallelEnv):
         for agent in self.world.agents:
             total_action_penalties += self.calculate_action_penalties(agent)
 
+        total_reward = float(self.reward(agent, global_reward, total_action_penalties))
         for agent in self.world.agents:
             if self.episode_counter < self.num_r_help_episodes: # hjälpreward 
-                rewards[agent.name] = float(self.reward(agent, global_reward, total_action_penalties)) + agent.reward_bonus
+                rewards[agent.name] = total_reward + agent.reward_bonus
             else: 
-                rewards[agent.name] = float(self.reward(agent, global_reward, total_action_penalties))
+                rewards[agent.name] = total_reward
             agent.reward_bonus = 0
+
+        if self.evaluation_logger is not None:
+            self.evaluation_logger.add_value(self.timestep, total_reward)
         
         terminations = self.terminate()
         #terminations = {agent.name: False for agent in self.world.agents}
@@ -662,9 +669,16 @@ class Info_relay_env(ParallelEnv):
         # handle truncation
         truncations = {agent.name: False for agent in self.world.agents}
         if self.timestep > self.max_iter - 2:
-            #rewards = {agent.name: 0.0 for agent in self.world.agents} # maybe add reward for bases/emitters later on? far future 
+            #rewards = {agent.name: 0.0 for agent in self.world.agents} # maybe add reward for bases/emitters later on? far future
             truncations = {agent.name: True for agent in self.world.agents}
             self.agents = []
+
+        if self.evaluation_logger is not None and ( any(list(terminations.values())) or any(list(truncations.values())) ):
+            if self.scenario_index_counter > 0:
+                print("writing episode to file: ", self.evaluation_logger.episode_index)
+                self.evaluation_logger.write_episode()
+            self.scenario_index_counter += 1
+            self.evaluation_logger.update_episode_index(self.scenario_index_counter)
 
         self.timestep += 1
 
@@ -693,7 +707,7 @@ class Info_relay_env(ParallelEnv):
         return {agent.name: False for agent in self.world.agents}
 
 
-    def calculate_action_penalties(self, agent, eval_logger = None):
+    def calculate_action_penalties(self, agent):
         """
         Calculate the penalties each drone recieves for actions. Movement and communication.
         """
@@ -705,13 +719,13 @@ class Info_relay_env(ParallelEnv):
         else:
             if abs(agent.action.u[0]) == abs(agent.action.u[1]): # both are 0 or max_vel
                 penalties += abs(agent.action.u[0]**2*agent.movement_cost)
-                if eval_logger is not None:
-                    eval_logger.add_movement(abs(agent.action.u[0]))
+                if self.evaluation_logger is not None:
+                    self.evaluation_logger.add_movement(abs(agent.action.u[0]))
             else:
                 penalties += abs(agent.action.u[0]**2*agent.movement_cost)
                 penalties += abs(agent.action.u[1]**2*agent.movement_cost)
-                if eval_logger is not None:
-                    eval_logger.add_movement(abs(agent.action.u[0]) + abs(agent.action.u[1]))
+                if self.evaluation_logger is not None:
+                    self.evaluation_logger.add_movement(abs(agent.action.u[0]) + abs(agent.action.u[1]))
             penalties += abs(agent.action.u[2]**2*agent.radar_cost)
 
         return penalties
@@ -835,7 +849,7 @@ class Info_relay_env(ParallelEnv):
 
 
     
-    def communication_kernel(self, eval_logger = None):
+    def communication_kernel(self):
         """ Runs the communication kernel when the message buffer is just one boolean contaning one message without any meta data """
         # om bas-looparna tas bort:
         #base1 = self.world.bases[0]
@@ -858,8 +872,8 @@ class Info_relay_env(ParallelEnv):
                         agent.state.c = 1 # not it will send continously
                         agent.reward_bonus += 0.25
                         recieved_message = True
-                        if eval_logger is not None:
-                            eval_logger.add_air_distance(base, agent)
+                        if self.evaluation_logger is not None:
+                            self.evaluation_logger.add_air_distance(base, agent)
 
 
             if recieved_message: # do not check agents if message recieved from base
@@ -875,8 +889,8 @@ class Info_relay_env(ParallelEnv):
                         agent.state.c = 1
                         agent.reward_bonus += 0.25
                         other.reward_bonus += 0.25
-                        if eval_logger is not None:
-                            eval_logger.add_air_distance(other, agent)
+                        if self.evaluation_logger is not None:
+                            self.evaluation_logger.add_air_distance(other, agent)
                         continue
 
         for base in self.world.bases: # maybe remove loop - only look at the 2nd base
@@ -886,8 +900,8 @@ class Info_relay_env(ParallelEnv):
                     if self.check_signal_detection(SNR):
                         base.message_buffer = True # the game should end once this condition is met
                         agent.reward_bonus += 1.0
-                        if eval_logger is not None:
-                            eval_logger.add_air_distance(agent, base)
+                        if self.evaluation_logger is not None:
+                            self.evaluation_logger.add_air_distance(agent, base)
                         continue
             for other in self.world.bases: # maybe remove loop - only look at the first base
                 if other.name == base.name:
@@ -896,7 +910,8 @@ class Info_relay_env(ParallelEnv):
                     SNR = self.calculate_SNR(base, other, self.world.emitters)
                     if self.check_signal_detection(SNR):
                         base.message_buffer = True
-                        eval_logger.add_air_distance(other, base)
+                        if self.evaluation_logger is not None:
+                            self.evaluation_logger.add_air_distance(other, base)
                         continue
 
     

@@ -11,17 +11,21 @@ Taken from pettingzoo MPE and altered
 
 class EvaluationLogger:
     def __init__(self):
-        self.episode_movement = np.zeros(10000)
-        self.episode_air_distance = np.zeros(10000)
+        self.episode_movement = np.zeros(10000 + 1)
+        self.episode_air_distance = np.zeros(10000 + 1)
+        self.value=np.zeros(10000 + 1)
         self.episode_index = None
         self.f_movement = open('eval_movement', 'a')
         self.f_air_distance = open('eval_air_distance', 'a')
+        self.f_value = open('eval_value', 'a')
         self.writer_air_distance = csv.writer(self.f_air_distance)
         self.writer_movement = csv.writer(self.f_movement)
+        self.writer_value = csv.writer(self.f_value)
 
     def write_episode(self):
         self.writer_air_distance.writerow([self.episode_index, self.episode_air_distance[self.episode_index]])
         self.writer_movement.writerow([self.episode_index, self.episode_movement[self.episode_index]])
+        self.writer_value.writerow([self.episode_index, self.value[self.episode_index]])
 
     def update_episode_index(self, index):
         self.episode_index = index
@@ -32,6 +36,9 @@ class EvaluationLogger:
     def add_air_distance(self, sender, receiver):
         distance = np.linalg.norm(sender.state.p_pos - receiver.state.p_pos)
         self.episode_air_distance[self.episode_index] += distance
+
+    def add_value(self, time_step, reward):
+        self.value[self.episode_index] += reward * 0.99 ** time_step
 
 class EntityState:  # physical/external base state of all entities
     def __init__(self):
