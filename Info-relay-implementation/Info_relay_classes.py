@@ -10,21 +10,52 @@ Taken from pettingzoo MPE and altered
 """
 
 class EvaluationLogger:
-    def __init__(self):
+    def __init__(self, directed_transmission = False, K = 0, file = ""):
+        self.episode_index = 0
+        self.success = np.zeros(10000 + 1, dtype=bool)
+        self.R = np.zeros(10000 + 1)
+        self.value = np.zeros(10000 + 1)
+        self.budget = np.zeros(10000 + 1)
         self.episode_movement = np.zeros(10000 + 1)
         self.episode_air_distance = np.zeros(10000 + 1)
-        self.value=np.zeros(10000 + 1)
-        self.episode_index = None
+        self.delivery_time = np.zeros(10000 + 1)
+        self.directed_transmission = directed_transmission
+        self.K = K
+        self.file = file.split("/")[-1]
+        
         # idx, success, R, value, budget, sum_distance, air_distance, delivery_time, directed_transmission_bool, K, file
         self.f_eval = open('evaluation_log', 'w')
         self.writer_eval = csv.writer(self.f_eval)
-        self.writer_eval.writerow(["idx", "sucess", "R", "value", "budget", "sum_distance", "air_distance", "delivery_time", "directed_transmission", "K", "file"])
+        self.writer_eval.writerow(["idx", "sucess", "R", "value", "budget", "sum_distance",
+                                   "air_distance", "delivery_time", "directed_transmission", "K", "file"])
 
     def write_episode(self):
-        self.writer_eval.writerow([self.episode_index, True, 1.0, self.value[self.episode_index], 10.0, self.episode_movement[self.episode_index], self.episode_air_distance[self.episode_index], 150, False, 3, "file.csv"])
+        self.writer_eval.writerow([self.episode_index,
+                                   self.success[self.episode_index],
+                                   self.R[self.episode_index],
+                                   self.value[self.episode_index],
+                                   self.budget[self.episode_index],
+                                   self.episode_movement[self.episode_index],
+                                   self.episode_air_distance[self.episode_index],
+                                   self.delivery_time[self.episode_index],
+                                   self.directed_transmission,
+                                   self.K,
+                                   self.file])
 
     def update_episode_index(self, index):
         self.episode_index = index
+
+    def add_delivery_time(self, time):
+        self.delivery_time[self.episode_index] += time
+
+    def set_budget(self, budget):
+        self.budget[self.episode_index] = budget
+
+    def set_R(self, R):
+        self.R[self.episode_index] = R
+
+    def set_success(self, success):
+        self.success[self.episode_index] = success
 
     def add_movement(self, movement):
         self.episode_movement[self.episode_index] += movement

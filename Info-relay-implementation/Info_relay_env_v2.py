@@ -67,7 +67,7 @@ class Info_relay_env(ParallelEnv):
                  continuous_actions = True, one_hot_vector = False, antenna_used = True, 
                  com_used = True, num_messages = 1, base_always_transmitting = True, 
                  observe_self = True, render_mode = None, using_half_velocity = False,
-                 pre_determined_scenario = False, num_CL_episodes = 0, num_r_help_episodes = 0):
+                 pre_determined_scenario = True, num_CL_episodes = 0, num_r_help_episodes = 0):
         #super().__init__()
         self.render_mode = render_mode
         pygame.init()
@@ -107,16 +107,17 @@ class Info_relay_env(ParallelEnv):
 
         self.continuous_actions = continuous_actions # indicies if continous or discrete actions are used
         self.one_hot_vector = one_hot_vector # if continous - this shows if one hot vector or single value representation of actions (output from NN) are used
+        self.antenna_used = antenna_used #OBS ändra när antennen ska styras igen
         self.pre_determined_scenario = pre_determined_scenario
         if self.pre_determined_scenario:
-            self.evaluation_logger = EvaluationLogger()
+            self.eval_state_file = f"initial_state_pool/evaluation_states_K{self.n_agents}_n10000.csv"
+            self.evaluation_logger = EvaluationLogger(self.antenna_used, self.n_agents, self.eval_state_file)
             self.pre_loaded_scenarios = []
             self.scenario_index_counter = 0
             self.evaluation_logger.update_episode_index(self.scenario_index_counter)
             self.read_scenario_csv()
         else:
             self.evaluation_logger = None
-        self.antenna_used = antenna_used #OBS ändra när antennen ska styras igen
         self.com_used = com_used #OBS - communications can be turned of to test just the movement in different tasks
         self.observe_self = observe_self
         self.angle_coord_rotation = 0 # declared as a class variabel to be reach in observation and in setting actions
@@ -477,6 +478,8 @@ class Info_relay_env(ParallelEnv):
             base.state.p_pos_history = []
 
         self.world.R = np.linalg.norm(self.world.bases[0].state.p_pos - self.world.bases[1].state.p_pos)
+        if self.evaluation_logger is not None:
+            self.evaluation_logger.set_R(self.world.R)
 
         self.world.bases[0].state.c = 1
         self.world.bases[1].state.c = 0
@@ -518,9 +521,8 @@ class Info_relay_env(ParallelEnv):
     def read_scenario_csv(self):
 
         script_dir = os.path.dirname(os.path.abspath(__file__))
-        file_path = f"initial_state_pool/evaluation_states_K{self.n_agents}_n10000.csv"
-        scenario_file = os.path.join(script_dir, file_path)
-        print("Pre-load scenario from file: ", file_path)
+        scenario_file = os.path.join(script_dir, self.eval_state_file)
+        print("Pre-load scenario from file: ", self.eval_state_file)
 
         with open(scenario_file, 'r') as f:
             csv_reader = csv.reader(f)
@@ -544,6 +546,7 @@ class Info_relay_env(ParallelEnv):
         if self.pre_determined_scenario:
             if self.scenario_index_counter > 0:
                 self.apply_pre_loaded_scenario()
+                self.evaluation_logger.set_budget(self.compute_budget(self.n_agents, self.R, self.a_max, self.discount_factor)[0])
             else:
                 # I have no fucking idea
                 self.reset_world(self.world, self.np_random)
@@ -662,6 +665,7 @@ class Info_relay_env(ParallelEnv):
 
         if self.evaluation_logger is not None:
             self.evaluation_logger.add_value(self.timestep, total_reward)
+            self.evaluation_logger.add_delivery_time(1)
         
         terminations = self.terminate()
         #terminations = {agent.name: False for agent in self.world.agents}
@@ -681,6 +685,7 @@ class Info_relay_env(ParallelEnv):
             self.evaluation_logger.update_episode_index(self.scenario_index_counter)
 
         self.timestep += 1
+
 
         # generate new observations
         observations = self.observe_all()
