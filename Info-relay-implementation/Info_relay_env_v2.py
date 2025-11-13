@@ -118,7 +118,7 @@ class Info_relay_env(ParallelEnv):
         self.pre_determined_scenario = pre_determined_scenario
         if self.pre_determined_scenario:
             self.eval_state_file = f"initial_state_pool/evaluation_states_K{self.n_agents}_n10000.csv"
-            self.evaluation_logger = EvaluationLogger(self.antenna_used, self.n_agents, self.eval_state_file)
+            self.evaluation_logger = EvaluationLogger(self.antenna_used, self.n_agents, self.eval_state_file, f"MAPPO_evaluation_results_K{self.n_agents}_cpos0.5_cphi0.1_n10000_dir{int(self.antenna_used)}_jam{self.num_emitters}.csv")
             self.pre_loaded_scenarios = []
             self.scenario_index_counter = 0
             self.evaluation_logger.update_episode_index(self.scenario_index_counter)

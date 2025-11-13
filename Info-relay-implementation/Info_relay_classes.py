@@ -10,7 +10,7 @@ Taken from pettingzoo MPE and altered
 """
 
 class EvaluationLogger:
-    def __init__(self, directed_transmission = False, K = 0, file = ""):
+    def __init__(self, directed_transmission = False, K = 0, scenario_file = "", evaluation_log = "evaluation_log"):
         self.episode_index = 0
         self.success = False
         self.R = 0
@@ -21,12 +21,13 @@ class EvaluationLogger:
         self.delivery_time = 0
         self.directed_transmission = directed_transmission
         self.K = K
-        self.file = file.split("/")[-1]
+        self.scenario_file = scenario_file.split("/")[-1]
+        self.evaluation_log = evaluation_log
         
         # idx, success, R, value, budget, sum_distance, air_distance, delivery_time, directed_transmission_bool, K, file
-        self.f_eval = open('evaluation_log', 'w')
+        self.f_eval = open(self.evaluation_log, 'w')
         self.writer_eval = csv.writer(self.f_eval)
-        self.writer_eval.writerow(["idx", "sucess", "R", "value", "budget", "sum_distance",
+        self.writer_eval.writerow(["idx", "sucess", "R", "value", "budget", "agent_sum_distance",
                                    "air_distance", "delivery_time", "directed_transmission", "K", "file"])
 
     def write_episode(self):
@@ -40,7 +41,7 @@ class EvaluationLogger:
                                    self.delivery_time,
                                    self.directed_transmission,
                                    self.K,
-                                   self.file])
+                                   self.scenario_file])
         
         self.R = 0
         self.value = 0
