@@ -671,6 +671,8 @@ class Info_relay_env(ParallelEnv):
             agent.reward_bonus = 0
 
         if self.evaluation_logger is not None:
+            if self.global_reward() > 0:
+                self.evaluation_logger.set_success()
             self.evaluation_logger.add_value(self.timestep, total_reward)
             self.evaluation_logger.add_delivery_time(1)
         
@@ -1118,7 +1120,7 @@ class Info_relay_env(ParallelEnv):
 
     
     def observe(self, agent): # these could be included in the Scenario class together with world make/reset
-        return self.full_relative_observation(agent)
+        return self.observation_based_on_range(agent)
         #return self.observation_based_on_range(agent)
 
     #

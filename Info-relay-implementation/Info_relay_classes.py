@@ -12,13 +12,13 @@ Taken from pettingzoo MPE and altered
 class EvaluationLogger:
     def __init__(self, directed_transmission = False, K = 0, file = ""):
         self.episode_index = 0
-        self.success = np.zeros(10000 + 1, dtype=bool)
-        self.R = np.zeros(10000 + 1)
-        self.value = np.zeros(10000 + 1)
-        self.budget = np.zeros(10000 + 1)
-        self.episode_movement = np.zeros(10000 + 1)
-        self.episode_air_distance = np.zeros(10000 + 1)
-        self.delivery_time = np.zeros(10000 + 1)
+        self.success = False
+        self.R = 0
+        self.value = 0
+        self.budget = 0
+        self.episode_movement = 0
+        self.episode_air_distance = 0
+        self.delivery_time = 0
         self.directed_transmission = directed_transmission
         self.K = K
         self.file = file.split("/")[-1]
@@ -31,41 +31,49 @@ class EvaluationLogger:
 
     def write_episode(self):
         self.writer_eval.writerow([self.episode_index,
-                                   self.success[self.episode_index],
-                                   self.R[self.episode_index],
-                                   self.value[self.episode_index],
-                                   self.budget[self.episode_index],
-                                   self.episode_movement[self.episode_index],
-                                   self.episode_air_distance[self.episode_index],
-                                   self.delivery_time[self.episode_index],
+                                   self.success,
+                                   self.R,
+                                   self.value,
+                                   self.budget,
+                                   self.episode_movement,
+                                   self.episode_air_distance,
+                                   self.delivery_time,
                                    self.directed_transmission,
                                    self.K,
                                    self.file])
+        
+        self.R = 0
+        self.value = 0
+        self.budget = 0
+        self.episode_movement = 0
+        self.episode_air_distance = 0
+        self.delivery_time = 0
+        self.success = False
 
     def update_episode_index(self, index):
         self.episode_index = index
 
     def add_delivery_time(self, time):
-        self.delivery_time[self.episode_index] += time
+        self.delivery_time += time
 
     def set_budget(self, budget):
-        self.budget[self.episode_index] = budget
+        self.budget = budget
 
     def set_R(self, R):
-        self.R[self.episode_index] = R
+        self.R = R
 
-    def set_success(self, success):
-        self.success[self.episode_index] = success
+    def set_success(self):
+        self.success = True
 
     def add_movement(self, movement):
-        self.episode_movement[self.episode_index] += movement
+        self.episode_movement += movement
 
     def add_air_distance(self, sender, receiver):
         distance = np.linalg.norm(sender.state.p_pos - receiver.state.p_pos)
-        self.episode_air_distance[self.episode_index] += distance
+        self.episode_air_distance += distance
 
     def add_value(self, time_step, reward):
-        self.value[self.episode_index] += reward * 0.99 ** time_step
+        self.value += reward * 0.99 ** time_step
 
 class EntityState:  # physical/external base state of all entities
     def __init__(self):
