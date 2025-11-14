@@ -598,15 +598,20 @@ class Info_relay_env(ParallelEnv):
             if actions[2] == 2:
                 agent.action.u[2] = -self.omega_max
 
-        # if v_max/2 is a possible:
-        if actions[0] == 3:
-            agent.action.u[0] = self.a_max/2
-        if actions[0] == 4: 
-            agent.action.u[0] = -self.a_max/2
-        if actions[1] == 3:
-            agent.action.u[1] = self.a_max/2
-        if actions[1] == 4: 
-            agent.action.u[1] = -self.a_max/2
+        if self.using_half_velocity:
+            if actions[0] == 3:
+                agent.action.u[0] = self.a_max/2
+            if actions[0] == 4: 
+                agent.action.u[0] = -self.a_max/2
+            if actions[1] == 3:
+                agent.action.u[1] = self.a_max/2
+            if actions[1] == 4: 
+                agent.action.u[1] = -self.a_max/2
+
+            if abs(agent.action.u[0]) == self.a_max / 2 and abs(agent.action.u[0]) == self.a_max / 2:
+                scale = 1 / (2**0.5)
+                agent.action.u[0] *= scale
+                agent.action.u[1] *= scale
 
 
     # sets action when all outputs are continuous
@@ -727,17 +732,15 @@ class Info_relay_env(ParallelEnv):
         """
         penalties = 0
         if self.continuous_actions:
-            penalties += abs(agent.action.u[0]**2*agent.movement_cost)
-            penalties += abs(agent.action.u[1]**2*agent.movement_cost)
+            penalties += np.linalgnorm(agent.action.u[:2]**2*agent.movement_cost)
             penalties += abs(agent.action.u[2]**2*agent.radar_cost)
         else:
-            if abs(agent.action.u[0]) == abs(agent.action.u[1]): # both are 0 or max_vel
-                penalties += abs(agent.action.u[0]**2*agent.movement_cost)
+            if abs(agent.action.u[0]) == abs(agent.action.u[1]): # both are 0 or max_vel (or max_vel/2)
+                penalties += np.linalg.norm(agent.state.p_vel)**2*agent.movement_cost
                 if self.evaluation_logger is not None:
                     self.evaluation_logger.add_movement(abs(agent.action.u[0]))
             else:
-                penalties += abs(agent.action.u[0]**2*agent.movement_cost)
-                penalties += abs(agent.action.u[1]**2*agent.movement_cost)
+                penalties += np.linalg.norm(agent.state.p_vel)**2*agent.movement_cost
                 if self.evaluation_logger is not None:
                     self.evaluation_logger.add_movement(abs(agent.action.u[0]) + abs(agent.action.u[1]))
             penalties += abs(agent.action.u[2]**2*agent.radar_cost)

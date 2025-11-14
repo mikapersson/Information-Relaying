@@ -279,7 +279,7 @@ class Drone(Entity):  # properties of agent entities
         self.reward_bonus = 0
 
         self.movement_cost = 0.5 # the cost of movement - scales with magnitude of movement 
-        self.radar_cost = 0.02 # cost of changing direction of radar
+        self.radar_cost = 0.1 # cost of changing direction of radar
         self.transmission_cost = 0.001 # cost of transmitting a message 
 
 
