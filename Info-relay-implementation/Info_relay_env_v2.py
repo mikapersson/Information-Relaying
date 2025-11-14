@@ -607,8 +607,8 @@ class Info_relay_env(ParallelEnv):
                 agent.action.u[1] = self.a_max/2
             if actions[1] == 4: 
                 agent.action.u[1] = -self.a_max/2
-
-            if abs(agent.action.u[0]) == self.a_max / 2 and abs(agent.action.u[0]) == self.a_max / 2:
+        
+            if abs(agent.action.u[1]) == self.a_max / 2 and abs(agent.action.u[0]) == self.a_max / 2:
                 scale = 1 / (2**0.5)
                 agent.action.u[0] *= scale
                 agent.action.u[1] *= scale
@@ -738,11 +738,11 @@ class Info_relay_env(ParallelEnv):
             if abs(agent.action.u[0]) == abs(agent.action.u[1]): # both are 0 or max_vel (or max_vel/2)
                 penalties += np.linalg.norm(agent.state.p_vel)**2*agent.movement_cost
                 if self.evaluation_logger is not None:
-                    self.evaluation_logger.add_movement(abs(agent.action.u[0]))
+                    self.evaluation_logger.add_movement(np.linalg.norm(agent.state.p_vel))
             else:
                 penalties += np.linalg.norm(agent.state.p_vel)**2*agent.movement_cost
                 if self.evaluation_logger is not None:
-                    self.evaluation_logger.add_movement(abs(agent.action.u[0]) + abs(agent.action.u[1]))
+                    self.evaluation_logger.add_movement(np.linalg.norm(agent.state.p_vel))
             penalties += abs(agent.action.u[2]**2*agent.radar_cost)
 
         return penalties
