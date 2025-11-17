@@ -145,20 +145,11 @@ class Info_relay_env(ParallelEnv):
             shape=(state_dim,),
             dtype=np.float32,
         )
-        
-        if self.antenna_used:
-            self.observation_spaces = {
+
+        self.observation_spaces = {
                 agent.name: spaces.Box(
                     low=-np.inf, high=np.inf,
-                    shape=(self.n_agents + dim_p * (self.n_agents - 1 + observe_self) + dim_p * self.num_bases + self.n_agents,),
-                    dtype=np.float32
-                ) for agent in self.world.agents
-            }
-        else:
-            self.observation_spaces = {
-                agent.name: spaces.Box(
-                    low=-np.inf, high=np.inf,
-                    shape=(dim_p * (self.n_agents - 1 + observe_self) + dim_p * self.num_bases + self.n_agents,),
+                    shape=(dim_p * (num_agents - 1 + observe_self) + dim_p * num_bases + num_agents + 2*num_agents*antenna_used + 2*dim_p*num_emitters,),
                     dtype=np.float32
                 ) for agent in self.world.agents
             }
@@ -761,7 +752,7 @@ class Info_relay_env(ParallelEnv):
         Returns:
             float: The computed budget(w)
         """
-        Rcom = 1.0
+        Rcom = self.transmission_radius_bases
 
         # Compute T_sharp
         T_sharp = int(np.floor(1.1 * R + 2 * Rcom) / sigma + K)
@@ -796,6 +787,54 @@ class Info_relay_env(ParallelEnv):
         budget = budget / (gamma ** T_sharp)
 
         return budget, T_sharp, t_start, t_stop
+    
+
+    def compute_budget_from_poly(K, R, Rcom=1.0):
+        """
+        Compute budget using polynomial coefficients from a lookup table.
+    
+        Args:
+            K (int): Number of agents
+            R (float): Distance between transmitter and receiver
+            Rcom (float): Communication range (default: 1.0)
+    
+        Returns:
+            float: The computed budget(w) using polynomial approximation
+    
+        Raises:
+            ValueError: If R is outside the valid range [K*Rcom, (K+4)*Rcom]
+            KeyError: If K is not found in the lookup table
+        """
+        # Hardcoded polynomial coefficients
+        hardcoded_coeffs = {
+            1: [0.010470585284440757, 0.12729574567799154, 0.235945100165072],
+            2: [0.011895625505199592, 0.13113751673796467, 0.338629134307303],
+            3: [0.013482687230860388, 0.1323680602300149, 0.5744544697422119],
+            4: [0.015254383027451862, 0.1304467097498171, 0.9640146006785912],
+            5: [0.01727552218404182, 0.12398577010534824, 1.5338947826010925],
+            6: [0.019576208532564747, 0.11178377236586168, 2.3144076254631276],
+            7: [0.022130292174085874, 0.09355880636422456, 3.335929933479222],
+            8: [0.02503478832280198, 0.06679187699721652, 4.643037372567654],
+            9: [0.028312262897735762, 0.030016185415284582, 6.281742610035206],
+            10: [0.03201053049026646, -0.018894374746918265, 8.307605857543587]
+        }
+    
+        if K not in hardcoded_coeffs:
+            raise KeyError(f"Coefficients for K={K} not found in lookup table. Available K values: {list(hardcoded_coeffs.keys())}")
+    
+        # Validate R is within the valid range
+        R_min = K * Rcom
+        R_max = (K + 4) * Rcom
+    
+        if R < R_min or R > R_max:
+            raise ValueError(
+                f"R={R} is outside the valid range [{R_min}, {R_max}] for K={K}. "
+                f"The polynomial coefficients are only valid within this interval."
+            )
+    
+        coeffs = hardcoded_coeffs[K]
+        poly = np.poly1d(coeffs)
+        return float(poly(R))
 
 
     def global_reward(self):
@@ -803,7 +842,8 @@ class Info_relay_env(ParallelEnv):
         self.discount_factor = 0.99 
 
         if self.world.bases[1].message_buffer: # meddelandet har levererats (detta tidsteg)
-            return self.compute_budget(self.n_agents, self.R, self.a_max, self.discount_factor)[0]
+            #return self.compute_budget(self.n_agents, self.R, self.a_max, self.discount_factor)[0]
+            return self.compute_budget_from_poly(self.n_agents, self.R, self.transmission_radius_bases)
         else:
             return 0
 
