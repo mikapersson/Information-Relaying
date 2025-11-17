@@ -437,6 +437,7 @@ class Info_relay_env(ParallelEnv):
             #agent.state.p_pos = np_random.uniform(-self.world_size*3, self.world_size*3, world.dim_p) # randomly assign starting location in a square
             emitter.state.p_pos = emitter_positions[i]
             emitter.state.p_vel = np.zeros(world.dim_p) 
+            emitter.action.u = None  # Get new direction
             emitter.generate_action(self.R)
             emitter.state.theta = 0.0 # TODO - maybe randomize?
             emitter.state.p_pos_history = []
@@ -789,7 +790,7 @@ class Info_relay_env(ParallelEnv):
         return budget, T_sharp, t_start, t_stop
     
 
-    def compute_budget_from_poly(K, R, Rcom=1.0):
+    def compute_budget_from_poly(self, K, R, Rcom=1.0):
         """
         Compute budget using polynomial coefficients from a lookup table.
     
