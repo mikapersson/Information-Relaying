@@ -258,7 +258,7 @@ class Info_relay_env(ParallelEnv):
         for i, emitter in enumerate(world.emitters):
             emitter.name = f"jammer_{i}"
             emitter.size = 0.025/2
-            emitter.max_speed = self.a_max
+            emitter.max_speed = 0.1
             agent.u_range = [self.a_max, self.omega_max] # maximum control range = a_max, omega_max
             emitter.internal_noise = 1
             emitter.color = np.array([1.0, 0, 0])            
