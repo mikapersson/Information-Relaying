@@ -12,6 +12,7 @@ parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if parent_dir not in sys.path:
     sys.path.append(parent_dir)
 from communication_experimentation import communication_range
+from compute_metrics_budget import compute_budget_from_poly, compute_metrics
 
 
 def one_antenna_step(phi_current, phi_final, phi_resolution):
@@ -217,7 +218,7 @@ def sample_capsule_point(R, Rcom, rng):
     return np.array([x, y])
 
 
-def compute_budget(K, R, sigma, beta):
+#def compute_budget(K, R, sigma, beta):
     """
     Compute the budget(w) as described in the prompt.
 
@@ -266,6 +267,99 @@ def compute_budget(K, R, sigma, beta):
     budget = budget / (beta ** T_sharp)
 
     return budget
+
+
+#def compute_metrics(p_trajectories, phi_trajectories, c_pos, c_phi, budget, beta):
+    """
+    Compute metrics (value, delivery time, and total distance) given agent trajectories.
+    
+    Args:
+        p_trajectories: dict mapping agent index k to dict of positions at each time t
+        phi_trajectories: dict mapping agent index k to list/dict of antenna directions
+        c_pos: cost coefficient for position movement
+        c_phi: cost coefficient for antenna steering
+        budget: allocated budget for the scenario
+    
+    Returns:
+        value: scalar value metric (budget - total cost)
+        T_D: delivery time (time when message reaches receiver)
+        D_tot: total distance traveled by all agents
+    """
+    
+    K = len(p_trajectories)
+    
+    # Determine total time steps
+    T_total = 0
+    for k in range(K):
+        if k in p_trajectories:
+            T_total = max(T_total, max(p_trajectories[k].keys()))
+    
+    # Compute total distance traveled by all agents
+    D_tot = 0.0
+    for k in range(K):
+        if k in p_trajectories:
+            p_traj_k = p_trajectories[k]
+            for t in range(len(p_traj_k)-1):
+                if t in p_traj_k and (t + 1) in p_traj_k:
+                    distance_step = la.norm(p_traj_k[t + 1] - p_traj_k[t])
+                    D_tot += distance_step
+    
+    # Compute antenna steering cost
+    phi_cost_total = 0.0
+    if c_phi > 0:
+        for k in range(K):
+            if k in phi_trajectories:
+                phi_traj_k = phi_trajectories[k]
+                
+                # Sum antenna steering costs (only when antenna direction changes)
+                times_k = list(p_traj_k.keys())
+                for t in times_k[:-1]:
+                    phi_current = phi_traj_k[t]
+                    phi_next = phi_traj_k[t + 1]
+                    phi_diff = np.abs(phi_next - phi_current) if phi_current is not None and phi_next is not None else 0.0
+                    
+                    # Only count cost if antenna actually moved
+                    if phi_current is not None and phi_next is not None:
+                        if not np.isclose(phi_current, phi_next, atol=1e-6):
+                            phi_cost_total += beta**t * c_phi * phi_diff**2  # Cost per antenna step
+    
+    # Compute delivery time (T_D)
+    # T_D is the time when the message reaches the receiver
+    # This is determined by finding the last time step where any agent has the message
+    T_D = 0
+    for k in range(K):
+        if k in p_trajectories:
+            p_traj_k = p_trajectories[k]
+            T_D = max(T_D, max(p_traj_k.keys()))
+    
+    T_D = int(T_D) + 1  # Convert to time step (inclusive)
+    
+    # Compute total movement cost
+    # Cost = c_pos * sum of all distances traveled
+    position_cost = 0.0
+    for k in range(K):
+        if k in p_trajectories:
+            p_traj_k = p_trajectories[k]
+            
+            # Sum antenna steering costs (only when antenna direction changes)
+            times_k = list(p_traj_k.keys())
+            for t in times_k[:-1]:
+                p_current = p_traj_k[t]
+                p_next = p_traj_k[t + 1]
+                p_diff = la.norm(p_next - p_current) if p_current is not None and p_next is not None else 0.0
+                
+                # Only count cost if antenna actually moved
+                if p_current is not None and p_next is not None:
+                    position_cost += beta**t * c_pos * p_diff**2  # Cost per antenna step
+    
+    # Total cost
+    total_cost = position_cost + phi_cost_total
+    
+    # Compute value metric
+    # Value = budget - total_cost (higher is better)
+    value = budget - total_cost
+    
+    return value, T_D, D_tot
 
 
 def dijkstra_baseline(
@@ -772,7 +866,7 @@ def dijkstra_baseline(
 
     # Distance and stop time for retrieving agent
     ps_k = best_graph.nodes['s_k']['pos'] 
-    D_k[best_k] = la.norm(- p_agents[best_k]) 
+    D_k[best_k] = la.norm(ps_k - p_agents[best_k]) 
     if k_D > 0:
         first_relay = best_relaying_agents[0]
         p_to=best_relay_points[first_relay]
@@ -787,7 +881,8 @@ def dijkstra_baseline(
 
     D_ret_hand = la.norm(handover_point_best_k - ps_k)
     D_k[best_k] += D_ret_hand
-    t_stop_k[best_k] = int(np.ceil(la.norm(ps_k - p_agents[best_k]) / sigma)) + 1 + int(np.ceil(D_ret_hand / sigma))
+    eps = 1e-8
+    t_stop_k[best_k] = int(np.ceil((la.norm(ps_k - p_agents[best_k]) - eps) / sigma)) + 1 + int(np.ceil((D_ret_hand - eps) / sigma))
     handover_points[best_k] = handover_point_best_k
 
     # Distances and times for relaying agents  (recall that everything continues being isotropic)
@@ -807,23 +902,23 @@ def dijkstra_baseline(
         )
         handover_points[k] = handover_point_k
 
-        D_to_rel = la.norm(relay_point - p_agents[k])
-        D_to_hand = la.norm(handover_point_k - relay_point)
+        D_to_rel = la.norm(relay_point - p_agents[k]) - eps
+        D_to_hand = la.norm(handover_point_k - relay_point) - eps
         D_k[k] = D_to_rel + D_to_hand
 
         # Start time: must arrive at relay point before the preceding agent arrives
         t_rel_dur = int(np.ceil(D_to_rel / sigma))
         if idx == 0:
             # First relay after retrieving agent
-            t_start_k[k] = t_stop_k[best_k] - t_rel_dur + 1
+            t_start_k[k] = t_stop_k[best_k] - t_rel_dur# + 1
         else:
             prev_relay = best_relaying_agents[idx-1]
             prev_arrival = t_stop_k[prev_relay]
-            t_start_k[k] = prev_arrival - t_rel_dur + 1
+            t_start_k[k] = prev_arrival - t_rel_dur# + 1
 
         # Stop time
         t_hand_dur = int(np.ceil(D_to_hand / sigma))
-        t_stop_k[k] = t_start_k[k] + t_rel_dur + 1 + t_hand_dur
+        t_stop_k[k] = t_start_k[k] + t_rel_dur + t_hand_dur
     
             
     # Sanity check, no active agent has reached its relay point before the message could have (excluding air distance for the message)
@@ -831,7 +926,7 @@ def dijkstra_baseline(
         if not directed_transmission and not jammer_on:
             for idx, k in enumerate(best_relaying_agents):
                 message_distance = la.norm(ps_k - p_agents[best_k]) + \
-                    max(0, la.norm(best_relay_points[best_relaying_agents[0]] - ps_k) - Rcom)
+                    max(0, la.norm(best_relay_points[best_relaying_agents[0]] - ps_k) - Rcom) - eps
                 if idx > 0:
                     message_distance += sum(
                         max(0, la.norm(best_relay_points[best_relaying_agents[i+1]] - best_relay_points[best_relaying_agents[i]]) - Rcom) for i in range(idx)  # distance to next relay agent
@@ -843,15 +938,122 @@ def dijkstra_baseline(
         else:
             Warning("Sanity check for agent relay times not implemented for scenarios with orientations or jammers")
 
+
+    # Save trajectories (positions and antenna directions in all time steps)
+    p_trajectories = {}
+    phi_trajectories = {}
+    has_message = {}
+    p_jammer_trajectory = {}
+
+    # Compute trajectories only for isotropic, non-jammed scenario (done for the other scenarios below)
+    if not directed_transmission and not jammer_on:
+        # Determine total scenario duration
+        T_total = int(np.max(t_stop_k)) if np.any(t_stop_k >= 0) else 1
+
+        # Compute trajectories for all agents across all time points
+        for k in range(K):
+            p_traj_dict = {}
+            
+            t_intermediate = T_total + 1  # default value for passive agents
+            if t_stop_k[k] >= 0:  # active agent
+                p_start = p_agents[k]
+                
+                # Determine intermediate point (relay point or ps_k for retrieving agent)
+                if k == best_k:
+                    # Retrieving agent: initial -> ps_k -> handover
+                    p_intermediate = ps_k
+                else:
+                    # Relaying agent: initial -> relay_point -> handover
+                    p_intermediate = best_relay_points[k]
+                
+                p_end = handover_points[k]
+                
+                # Compute distances and times for two segments
+                D_to_intermediate = la.norm(p_intermediate - p_start) - eps
+                t_to_intermediate_dur = np.ceil(D_to_intermediate / sigma)
+                
+                D_intermediate_to_end = la.norm(p_end - p_intermediate) - eps
+                t_to_end_dur = np.ceil(D_intermediate_to_end / sigma)
+                
+                D_total = D_to_intermediate + D_intermediate_to_end
+                t_total = t_to_intermediate_dur + 1 + t_to_end_dur
+                #t_total = t_stop_k[k] - t_start_k[k] - 1
+            
+                # Time split between segments (proportional to distances)
+                if D_total > 1e-12:  # init point same as pickup/intermediate point
+                    #t_intermediate = t_start_k[k] + int(np.ceil((D_to_intermediate / D_total) * t_total)) + 1  # time point at which agent reaches intermediate point
+                    t_intermediate = t_start_k[k] + t_to_intermediate_dur  # time point at which agent reaches intermediate point
+                else:
+                    t_intermediate = t_start_k[k]
+                
+                for t in range(T_total+1):
+                    if t <= t_start_k[k]:
+                        # Before movement starts: agent at initial position
+                        p_traj_dict[t] = p_start.copy()
+                    elif t >= t_stop_k[k]:
+                        # After movement stops: agent at final position
+                        p_traj_dict[t] = p_end.copy()
+                    elif t == t_intermediate:
+                        # At intermediate point: agent stands still at intermediate position
+                        p_traj_dict[t] = p_intermediate.copy()
+                    elif t < t_intermediate:
+                        # First segment: initial -> intermediate
+                        t_elapsed = t - t_start_k[k]
+                        if D_to_intermediate == 0:
+                            p_traj_dict[t] = p_intermediate.copy()
+                        else:
+                            #t_seg_total = t_intermediate - t_start_k[k] - 1
+                            t_seg_total = t_to_intermediate_dur
+                            if t_seg_total > 0:
+                                next_dir = (t_elapsed / t_seg_total) * (p_intermediate - p_start)
+                                p_traj_dict[t] = p_start + next_dir
+                            else:
+                                p_traj_dict[t] = p_intermediate.copy()
+                    else:
+                        # Second segment: intermediate -> end
+                        t_elapsed = t - t_intermediate
+                        if D_intermediate_to_end == 0:
+                            p_traj_dict[t] = p_end.copy()
+                        else:
+                            #t_seg_total = t_stop_k[k] - t_intermediate 
+                            t_seg_total = t_to_end_dur
+                            if t_seg_total > 0:
+                                next_dir = (t_elapsed / t_seg_total) * (p_end - p_intermediate)
+                                p_traj_dict[t] = p_intermediate + next_dir
+                            else:
+                                p_traj_dict[t] = p_end.copy()
+            
+            else:  # passive agent (not moving)
+                for t in range(T_total):
+                    p_traj_dict[t] = p_agents[k].copy()
+            
+            p_trajectories[k] = p_traj_dict
+            phi_trajectories[k] = {t: None for t in range(T_total+1)}
+            has_message[k] = {t: False if t < t_intermediate else True for t in range(T_total+1)}
+
+        # Sanity check: verify no agent moves more than sigma per time step
+        for k in range(K):
+            sigma_tol = 0.1
+            if t_stop_k[k] >= 0:
+                for t in range(T_total - 1):
+                    if t in p_trajectories[k] and (t + 1) in p_trajectories[k]:
+                        distance_per_step = la.norm(p_trajectories[k][t + 1] - p_trajectories[k][t])
+                        if distance_per_step > sigma + sigma_tol:  # small tolerance for numerical errors
+                            raise RuntimeError(
+                                f"Agent {k} moved {distance_per_step:.4f} at time step {t}, "
+                                f"exceeds sigma={sigma}. "
+                                f"Pos t={t}: {p_trajectories[k][t]}, "
+                                f"Pos t={t+1}: {p_trajectories[k][t+1]}"
+                            )
+                        
+        p_jammer_trajectory = {t: None for t in range(T_total+1)}
+    # END IF isotropic non-jammed
         
     # Non-isotropic scenarios
-    antenna_directions_all = {}  # store antenna directions at each time step for each active agent (while they are active)  
     t_pickup_all = {}  # store pickup times for each active agent
     p_jammer_current = None
     v_jammer_current = None
-    p_jammer_all = None
     v_jammer_all = None
-    phi_costs = np.zeros(K)  # store antenna steering costs for each agent
     if directed_transmission or jammer_on:  # Directed transmission or jammer  
 
         if directed_transmission:
@@ -864,14 +1066,16 @@ def dijkstra_baseline(
         if jammer_on:
             p_jammer_start = jammer_info['p_jammer']
             v_jammer_start = jammer_info['v_jammer']
-            p_jammer_all = {}
-            p_jammer_all[0] = p_jammer_start # collect all jammer positions at each time point
+            p_jammer_trajectory = {}
+            p_jammer_trajectory[0] = p_jammer_start # collect all jammer positions at each time point
             v_jammer_all = {}
             v_jammer_all[0] = v_jammer_start  # collect all jammer velocities at each time point
 
         # Process each agent in the relay chain
         for idx in range(k_D + 1):  # +1 to include retrieving agent
             has_received_message = False
+            p_trajectories_k = {}    # {time: np.array(pos_x, pos_y)}
+            has_message_k = {}    # {time: bool}
 
             # Determine pickup point
             if idx == 0:
@@ -942,11 +1146,13 @@ def dijkstra_baseline(
 
             # Initialize jammer position tracking
             if jammer_on:
-                p_jammer_current = p_jammer_all[t_current].copy()
+                p_jammer_current = p_jammer_trajectory[t_current].copy()
                 v_jammer_current = v_jammer_all[t_current].copy()
             
-            # While loop to find when communication becomes possible
+            # While agent has not handed over the message to the next entity
             while t_current <= t_max_w_antenna and not handover_complete:
+                p_trajectories_k[t_current] = p_current.copy()
+                has_message_k[t_current] = has_received_message
 
                 # Check if current agent has received the message from previous entity (either transmitting base or preceding agent)
                 if (t_current > 0) and not has_received_message:
@@ -961,23 +1167,26 @@ def dijkstra_baseline(
                         else:
                             within_pickup_range = False
                     else:
-                        within_pickup_range = (la.norm(p_pickup - p_current) < sigma)
+                        #within_pickup_range = (la.norm(p_pickup - p_current) < sigma)
+                        within_pickup_range = np.isclose(la.norm(p_pickup - p_current), 0.0, atol=1e-5)
                     if within_pickup_range:
                         has_received_message = True
                         t_pickup_all[k_current] = t_current
+                        has_message_k[t_current] = has_received_message
 
                 # Check if communication is possible at current position and antenna direction between the current agent and the next agent
-                sinr, _ = calculate_sinr_at_receiver(
-                    p_current, p_target, phi_current, jammer_pos=p_jammer_current
-                )
-                
-                # Communication is possible if SINR > threshold and within range
-                communication_possible = (sinr >= 1.0)  # hardcoded SNR threshold = 1
-                
-                if communication_possible and has_received_message:  # must be after pickup time
-                    handover_position = p_current.copy()
-                    handover_complete = True
-                    break
+                if has_received_message:
+                    sinr, _ = calculate_sinr_at_receiver(
+                        p_current, p_target, phi_current, jammer_pos=p_jammer_current
+                    )
+                    
+                    # Communication is possible if SINR > threshold and within range
+                    communication_possible = (sinr >= 1.0)  # hardcoded SNR threshold = 1
+                    
+                    if communication_possible:  # must be after pickup time
+                        handover_position = p_current.copy()
+                        handover_complete = True
+                        break
                 
                 # Step time forward  
                 t_current += 1
@@ -1021,6 +1230,9 @@ def dijkstra_baseline(
                     if distance_to_move >= sigma:
                         # Move one step towards target
                         p_current = p_current + sigma * (direction_to_move / distance_to_move)
+                    else:
+                        # Reached target position
+                        p_current = p_move_target
 
                 # Move the potential next agent towards its relay point (if applicable --- not for agent relaying to receiving base)
                 if (idx < k_D) and (t_start_k[k_next] <= t_current) and (t_current < t_stop_k[k_next]):
@@ -1041,7 +1253,7 @@ def dijkstra_baseline(
                     if not jammer_capsule_boundary(R, Rcom, point=p_jammer_current):
                         v_jammer_current = -v_jammer_current
                     p_jammer_current = p_jammer_current + v_jammer_current
-                    p_jammer_all[t_current] = p_jammer_current.copy()
+                    p_jammer_trajectory[t_current] = p_jammer_current.copy()
                     v_jammer_all[t_current] = v_jammer_current.copy()
 
 
@@ -1064,6 +1276,7 @@ def dijkstra_baseline(
             t_move_dur = t_handover - t_pickup
             t_dur = t_pickup_dur + t_move_dur
 
+            """
             # Handle subsequent agent start times due to time cutting
             time_cut = max(0, t_stop_k[k_current] - t_handover - 1)
             for k in best_relaying_agents[idx+1:]:
@@ -1085,6 +1298,7 @@ def dijkstra_baseline(
                     for k in best_relaying_agents[idx+2:]:
                         t_start_k[k] -= t_pre_handover
                         t_stop_k[k] -= t_pre_handover
+            """
 
     
             if directed_transmission:
@@ -1092,13 +1306,13 @@ def dijkstra_baseline(
                 # Find the last phi position and make the beginning steady until that point
                 phi_final = antenna_directions[-1]
                 
-                # Update initial antenna direction until final direction reached 
+                # Update initial antenna direction until final direction reached   DEBUG: (2*np.pi - phi_start)
                 phi_current = phi_start
                 n_phi_steps = 0
                 phis = []
                 #while np.isclose(phi_current, phi_final, atol=1e-2):# and n_phi_steps < 9:
-                while (phi_current != phi_final) and (n_phi_steps < 9):
-                    phi_current = one_antenna_step(phi_current, phi_target, phi_resolution)
+                while not np.isclose(phi_current, phi_final, atol=1e-3) and (n_phi_steps < 9):
+                    phi_current = one_antenna_step(phi_current, phi_final, phi_resolution)
                     phis.append(phi_current)
                     n_phi_steps += 1
 
@@ -1110,6 +1324,8 @@ def dijkstra_baseline(
                     new_antenna_directions[-n_phi_steps:] = phis
                     
                     antenna_directions = new_antenna_directions
+                else:  # start and end positions are the same -> no need to steer antenna
+                    antenna_directions = phi_start * np.ones_like(antenna_directions) 
             
                 # Sanity check, antenna_directions for each time point the agent is active
                 if len(antenna_directions) != (t_dur+1):
@@ -1121,33 +1337,29 @@ def dijkstra_baseline(
 
             # Handle subsequent agent start times due to time difference (save/cut if directed, increase if jammed)
             t_stop_dif = t_stop_k[k_current] - t_handover
+            t_stop_dif -= np.sign(t_stop_dif)
             for k in best_relaying_agents[idx:]:
                 if t_start_k[k] >= t_stop_dif:  # can't have negative start time
                     t_start_k[k] -= (t_stop_dif)
-                t_stop_k[k] -= (t_stop_dif)
-
-                    
-            # Update agent timing
-            D_k[k_current] = D_pickup + D_pickup_to_handover
+                    t_stop_k[k] -= (t_stop_dif)
             t_stop_k[k_current] = t_handover
 
-            # Account for antenna steering cost
-            if directed_transmission:
+                    
+            # Update agent, distance, timing, and antenna steering
+            D_k[k_current] = D_pickup + D_pickup_to_handover
+            p_trajectories[k_current] = p_trajectories_k
+            phi_trajectories_k = {t: antenna_directions[t - t_start] for t in range(t_start, t_handover + 1)} if directed_transmission else {t: None for t in range(t_start, t_handover + 1)}
+            phi_trajectories[k_current] = phi_trajectories_k
+            has_message[k_current] = has_message_k
 
-                phi_cost_temp = 0
-                for i in range(t_dur):  # has the antenna moved from one time step to the next?
-                    t_temp = t_start + i
-
-                    if antenna_directions[i] != antenna_directions[i+1]:
-                        phi_cost_temp += c_phi * (beta**t_temp)
-
-                phi_costs[k_current] = phi_cost_temp
-
-                antenna_directions_all[k_current] = antenna_directions
-
-            # TODO: For fixed agents, steer antenna in correct position based on start and stop times
             
         # END FOR each agent in relay chain (including retreiving agent)
+
+        # Trajectories for passive agents
+        for k in passive_agents:
+            p_trajectories[k] = {0: p_agents[k].copy()}
+            phi_trajectories[k] = {0: None}
+            has_message[k] = {0: False}
 
     # END IF scenarios that are NOT isotropic without jammer
 
@@ -1172,59 +1384,19 @@ def dijkstra_baseline(
             t_pickup_all[k_current] = t_pickup
 
 
-    # Value computation (see reasoning behind cost parameters, especially state s^#)
-    # Compute delivery time
-    T_D = int(np.max(t_stop_k[t_stop_k >= 0])) if np.any(t_stop_k >= 0) else 0
-
     # Compute budget
-    budget = compute_budget(K, R, sigma, beta)
+    #budget = compute_budget(K, R, sigma, beta)
+    budget = compute_budget_from_poly(K, R)
 
-    V_piD = (beta**T_D)*budget  
-    for t in range(T_D+1):
-        for k in range(K):
-            if t_start_k[k] <= t < t_stop_k[k]:
-                V_piD -= c_pos * sigma**2 * (beta**t)
-                
-    # Account for antenna cost
-    if directed_transmission:
-        for k in range(K):
-            V_piD -= phi_costs[k]  # already discounted and scaled above
-                
-
-    # Compute sum of agent distances
-    D_all = np.sum(D_k)
-
-    # Compute distance message has traveled through air
-    D_message_air = 0.0
-
-    # From transmitting base to retrieving agent's retrieval point (UNCAPPED)
-    if not jammer_on:
-        ps_k = best_graph.nodes['s_k']['pos']
-    D_message_air += la.norm(ps_k - p_tx)
-
-    # From retrieving agent to first relaying agent (or to RX base if no relays)
-    if k_D > 0:
-        first_relay = best_relaying_agents[0]
-        D_message_air += min(Rcom, la.norm(best_relay_points[first_relay] - ps_k))
-        
-        # Between relaying agents
-        for idx in range(k_D - 1):
-            first_relay = best_relaying_agents[idx]
-            second_relay = best_relaying_agents[idx+1]
-            D_message_air += min(Rcom, la.norm(best_relay_points[second_relay] - handover_points[first_relay]))
-        
-        # From last relay point to receiving base
-        last_relay = best_relaying_agents[-1]
-        D_message_air += min(Rcom, la.norm(p_recv - handover_points[last_relay]))
-    else:
-        # No relaying agents: direct TX → RX
-        D_message_air += min(Rcom, la.norm(p_recv - ps_k))
+    # Compute metrics (value, delivery time, and total distance), given the trajectories
+    value, T_D, D_tot = compute_metrics(p_trajectories, phi_trajectories, c_pos, c_phi, budget, beta)
 
 
     if debug:
         print(f"Passive agents: {passive_agents}")
 
     result = {
+        'R': R,
         'retrieving_agent': best_k,
         'path': best_path,
         'active_agents': all_active,
@@ -1238,16 +1410,19 @@ def dijkstra_baseline(
         'distance': best_distance,
         'agent_distances': D_k,
         'handover_points': handover_points,
-        'antenna_directions': antenna_directions_all,
+        'antenna_directions': phi_trajectories,
         'pickup_times': t_pickup_all,
-        'agent_sum_distance': D_all,
-        'message_air_distance': D_message_air,
+        'agent_sum_distance': D_tot,
+        #'message_air_distance': D_message_air,
         'delivery_time': T_D,
-        'value': V_piD,
+        'value': value,
         'budget': budget,
-        'p_jammer_all': p_jammer_all,
+        'p_jammer_trajectory': p_jammer_trajectory,
         'v_jammer_all': v_jammer_all,
-        'ps_k': ps_k
+        'ps_k': ps_k,
+        'p_trajectories': p_trajectories,
+        'phi_trajectories': phi_trajectories,
+        'has_message': has_message
     }
 
     return result
@@ -1759,7 +1934,7 @@ def animate_scenario_with_path_colored(sample, dijkstra_result, directed_transmi
         C_dir = 0.0
 
     if jammer_on:
-        p_jammer_all = dijkstra_result['p_jammer_all']
+        p_jammer_trajectory = dijkstra_result['p_jammer_trajectory']
         v_jammer_all = dijkstra_result['v_jammer_all']
     
     # Get antenna directions if available
@@ -2033,7 +2208,7 @@ def animate_scenario_with_path_colored(sample, dijkstra_result, directed_transmi
                 if not directed_transmission:
                     if t <= t_stop_k[k]:  # Only draw circle while agent is moving
                         if jammer_on:
-                            RX_Rcom = communication_range(0, 0, C_dir=0.0, SINR_threshold=1.0, jammer_pos=p_jammer_all[t], p_tx=pos)
+                            RX_Rcom = communication_range(0, 0, C_dir=0.0, SINR_threshold=1.0, jammer_pos=p_jammer_trajectory[t], p_tx=pos)
                             circ = plt.Circle(pos, RX_Rcom, color=color_com, fill=False, linestyle='--', linewidth=line_width, alpha=alpha_circle, zorder=2)
                         else:
                             circ = plt.Circle(pos, Rcom, color=color_com, fill=False, linestyle='--', linewidth=line_width, alpha=alpha_circle, zorder=2)
@@ -2104,7 +2279,7 @@ def animate_scenario_with_path_colored(sample, dijkstra_result, directed_transmi
 
         # Plot jammer if available
         if jammer_on:
-            p_jammer_t = p_jammer_all[t]
+            p_jammer_t = p_jammer_trajectory[t]
             v_jammer_t = v_jammer_all[t]
             
             # Plot jammer as red dot
@@ -2117,8 +2292,8 @@ def animate_scenario_with_path_colored(sample, dijkstra_result, directed_transmi
 
             # Plot jammer path (trajectory up to current time)
             if t > 0:
-                jammer_path_x = [p_jammer_all[i][0] for i in range(t+1)]
-                jammer_path_y = [p_jammer_all[i][1] for i in range(t+1)]
+                jammer_path_x = [p_jammer_trajectory[i][0] for i in range(t+1)]
+                jammer_path_y = [p_jammer_trajectory[i][1] for i in range(t+1)]
                 ax.plot(jammer_path_x, jammer_path_y, color='red', linestyle='-', linewidth=1, alpha=0.5, zorder=34)
 
 
@@ -2266,7 +2441,7 @@ def animate_scenario_with_path_colored(sample, dijkstra_result, directed_transmi
         plt.show()
 
 
-def load_premade_scenario(option=1, Rcom=1.0, sigma=0.1):
+def load_premade_scenario(option=1, Rcom=1.0, sigma=0.2):
     """
     Returns a dictionary in the same format as sample_scenario, but with premade agent positions.
     option: int, selects which premade scenario to load.
@@ -2430,6 +2605,38 @@ def load_premade_scenario(option=1, Rcom=1.0, sigma=0.1):
         # Dummy jammer (not used in this scenario)
         p_j = np.array([0.0, 0.0])
         dp_j = np.zeros(2)
+    elif option == 9:  # test directed transmission timings with K=2
+        K = 2
+        R = 3*Rcom + 3*sigma
+        x = 1.1*R
+        p_tx = np.array([0.0, 0.0])
+        Ra = 0.6 * R
+        p0 = np.array([R/2, 0.0])
+        p_recv = np.array([R, 0.0])
+        p_agents = np.array([
+            [Rcom+sigma, 0.0],
+            [2*Rcom+2*sigma, 0.0]
+        ])
+        phi_agents = None  # or set as needed
+        # Dummy jammer (not used in this scenario)
+        p_j = np.array([0.0, 0.0])
+        dp_j = np.zeros(2)
+    elif option == 10:  # test trajectory computation 
+        K = 2
+        x_dif = 2*Rcom
+        R = Rcom + x_dif + sigma
+        p_tx = np.array([0.0, 0.0])
+        Ra = 0.6 * R
+        p0 = np.array([R/2, 0.0])
+        p_recv = np.array([R, 0.0])
+        p_agents = np.array([
+            [Rcom+sigma, 0.0],
+            [x_dif+sigma, -sigma]
+        ])
+        phi_agents = None  # or set as needed
+        # Dummy jammer (not used in this scenario)
+        p_j = np.array([0.0, 0.0])
+        dp_j = np.zeros(2)
     else:
         raise ValueError("Unknown scenario option")
 
@@ -2452,7 +2659,7 @@ def load_premade_scenario(option=1, Rcom=1.0, sigma=0.1):
 
 if __name__ == '__main__':
     debug = True
-    test_scenario = 8
+    test_scenario = 10
 
     # Baseline
     clustering = True
@@ -2460,7 +2667,7 @@ if __name__ == '__main__':
 
     # Environment parameters
     Rcom = 1.0
-    sigma = 0.1
+    sigma = 0.2
     beta = 0.99
 
     # Cost parameters
@@ -2468,7 +2675,7 @@ if __name__ == '__main__':
     cost_antenna = 0.1
 
     # Define scenario
-    directed = True
+    directed = False
     jammer = None
 
     seed=1
@@ -2482,11 +2689,11 @@ if __name__ == '__main__':
 
     # Scenario parameters
     if test_scenario > 0:
-        sample = load_premade_scenario(option=test_scenario, Rcom=1.0, sigma=0.1)
+        sample = load_premade_scenario(option=test_scenario, Rcom=1.0, sigma=sigma)
         sample['sigma'] = sigma
         
         file_name = fr"test\\test_{test_scenario}_dijkstra_cluster_baseline_seed{seed}"
-        animation_save_path = os.path.join(anim_folder, file_name+'.gif')
+        animation_save_path = "Animations/test.gif"
         
         result = dijkstra_baseline(sample['p_agents'], 
                                    sample['p_tx'], 
@@ -2506,8 +2713,9 @@ if __name__ == '__main__':
         #plot_scenario_with_path_colored(sample, result, savepath=None, 
         #                                directed_transmission=directed, 
         #                                jammer=jammer, debug=debug)
+        #animation_save_path = None
         animate_scenario_with_path_colored(sample, result, directed_transmission=directed, 
-                                           savepath='Animations/test.gif', beamer_gif=True)
+                                           savepath=animation_save_path, beamer_gif=True)
     else:
         K_start = 1
         K_stop = 20

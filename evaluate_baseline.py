@@ -11,10 +11,11 @@ import matplotlib
 
 # Add the parent directory to sys.path to import dijkstra_baseline
 sys.path.append(str(Path(__file__).parent.parent))
-#from Dijkstra_baseline.dijkstra_baseline import dijkstra_baseline, plot_scenario_with_path_colored, animate_scenario_with_path_colored, plot_scenario
+from Dijkstra_baseline.dijkstra_baseline import dijkstra_baseline, plot_scenario_with_path_colored, animate_scenario_with_path_colored, plot_scenario
 #from Dijkstra_baseline.dijkstra_baseline_10nov_directed_ok import dijkstra_baseline, plot_scenario_with_path_colored, animate_scenario_with_path_colored, plot_scenario
 from Dijkstra_baseline.dijkstra_baseline_10nov_directed_ok_experiment import dijkstra_baseline_10nov, animate_scenario_with_path_colored_10nov
 
+from communication_experimentation import communication_range
 
 import matplotlib.pyplot as plt
 
@@ -129,6 +130,7 @@ def evaluate_baseline(data_file,
                 continue
             
             # Extract state from row
+            #print(f"Evaluating row {row_idx+1}")
             #state = data.iloc[row_idx]
             state = get_state_dict(data, row_idx)
             
@@ -160,7 +162,7 @@ def evaluate_baseline(data_file,
                 jammer_info = None
 
             # Run dijkstra baseline evaluation
-            result = dijkstra_baseline_10nov(
+            result = dijkstra_baseline(
                 p_agents, 
                 p_tx,
                 p_rx,
@@ -180,7 +182,7 @@ def evaluate_baseline(data_file,
                 'value': result['value'],
                 'budget': result['budget'],
                 'agent_sum_distance': result['agent_sum_distance'],
-                'message_air_distance': result['message_air_distance'],
+                #'message_air_distance': result['message_air_distance'],
                 'delivery_time': result['delivery_time'],
                 'directed_transmission': directed_transmission,
                 'jammer_on': jammer_on,
@@ -192,7 +194,8 @@ def evaluate_baseline(data_file,
                 
     except Exception as e:
         print(f"Error loading {data_file}: {e}")
-
+        import traceback
+        traceback.print_exc()
     
     return results
 
@@ -591,8 +594,9 @@ def plot_comparison_heatmap(results1, results2, method1, method2, plot_dir=None,
         ax.legend(loc='upper left', fontsize=9)
 
     sup_title = f'Policy Comparison Heatmap: ({method2}) vs ({method1}) for K={k}'
-    fig.suptitle(sup_title, fontsize=14)
+    #fig.suptitle(sup_title, fontsize=14)
     plt.subplots_adjust(wspace=0.15, hspace=0.3, left=0.08, right=0.95, top=0.88, bottom=0.12)
+
 
     if plot_dir:
         os.makedirs(plot_dir, exist_ok=True)
@@ -604,10 +608,19 @@ def plot_comparison_heatmap(results1, results2, method1, method2, plot_dir=None,
         plt.show()
 
 
+def compute_tx_communication_radius(p_rec, p_jammer):
+    Rcom = np.sqrt(1 / (1 + 3.0 * np.linalg.norm(p_rec - p_jammer)**(-2)))
 
-def save_trajectory(dijkstra_result, savepath):
+    return Rcom
+
+
+def save_trajectory(dijkstra_result, savepath, file=None, directed_transmission=False, jammer_on=False, file_idx=0):
+    R = dijkstra_result['R']
     p_trajectories = dijkstra_result['p_trajectories']
     phi_trajectories = dijkstra_result['phi_trajectories']
+    has_message_trajectories = dijkstra_result['has_message']
+    p_jammer_trajectory = dijkstra_result['p_jammer_trajectory']
+    #active_agents = dijkstra_result['active_agents']
 
     # Extract the finish time
     t_finish = -1
@@ -624,45 +637,76 @@ def save_trajectory(dijkstra_result, savepath):
     for idx, k in enumerate(p_trajectories.keys()):
         p_trajectories_k = p_trajectories[k]
         phi_trajectories_k = phi_trajectories[k]
+        has_message_trajectories_k = has_message_trajectories[k]
         t_start_k = min(p_trajectories_k.keys())
         t_stop_k = max(p_trajectories_k.keys())
 
-        # Create array with full length trajectory, padding with initial and final positions
+        # Create array with full length trajectory, potentially padding with initial and final positions
         p_traj_full_k = []
         phi_full_k = []
-        for t in range(t_finish):
+        has_message_full_k = []
+        for t in range(t_finish+1):
             if t < t_start_k:
                 p_traj_full_k.append(p_trajectories_k[t_start_k])
                 phi_full_k.append(phi_trajectories_k[t_start_k])
+                has_message_full_k.append(False)
             elif t > t_stop_k:
                 p_traj_full_k.append(p_trajectories_k[t_stop_k])
                 phi_full_k.append(phi_trajectories_k[t_stop_k])
+                has_message_full_k.append(has_message_trajectories_k[t_stop_k])
             else:
                 p_traj_full_k.append(p_trajectories_k[t])
                 phi_full_k.append(phi_trajectories_k[t])
+                has_message_full_k.append(has_message_trajectories_k[t])
 
-        traj_k = {'p_traj': p_traj_full_k, 'phi_traj': phi_full_k}
+        traj_k = {'p_traj': p_traj_full_k, 'phi_traj': phi_full_k, 'has_message': has_message_full_k}
         trajectories[idx] = traj_k
+
+    # Jammer trajectory
+    if jammer_on:
+        p_jammer_traj_full = []
+        for t in range(t_finish+1): 
+            p_jammer_traj_full.append(p_jammer_trajectory[t])
         
 
     records = []
 
-    for t in range(t_finish):
+    for t in range(t_finish+1):
         # Save as a flat record
         record = {
             'idx': t+1,  
-            't': t
+            't': t,
+            'R': R,
+            'directed_transmission': directed_transmission,
+            'jammer_on': jammer_on
         }
         # Add agent positions and orientations
         for k in range(K):
             traj_k = trajectories[k]
             p_agents = traj_k['p_traj']
             phi_agents = traj_k['phi_traj']
+            has_message = traj_k['has_message']
 
             record[f'agent{k+1}_x'] = p_agents[t][0]
             record[f'agent{k+1}_y'] = p_agents[t][1]
             record[f'agent{k+1}_phi'] = phi_agents[t]
+            record[f'agent{k+1}_has_message'] = has_message[t]
+            
+            #record[f'agent{k+1}_active'] = True if (k) in active_agents else False
         records.append(record)  
+
+        # Jammer position
+        if jammer_on:
+            if p_jammer_traj_full[0] is not None:
+                record[f'jammer_x'] = p_jammer_traj_full[t][0]
+                record[f'jammer_y'] = p_jammer_traj_full[t][1]
+            else:
+                record[f'jammer_x'] = None
+                record[f'jammer_y'] = None
+
+        if file:
+            record['file_idx'] = file_idx
+            record['file'] = file
 
 
     df = pd.DataFrame(records)
@@ -1076,9 +1120,9 @@ def plot_comparison_heatmap_all(comparisons, eval_K, plot_dir=None):
                 min_val = min(min_val, 0)
             
             # padding
-            pad = (max_val - min_val) * 0.05 if max_val > min_val else 0.1
-            min_val -= pad
-            max_val += pad
+            #pad = (max_val - min_val) * 0.05 if max_val > min_val else 0.1
+            #min_val -= pad
+            #max_val += pad
             
             global_limits[key] = (min_val, max_val)
         else:
@@ -1098,7 +1142,7 @@ def plot_comparison_heatmap_all(comparisons, eval_K, plot_dir=None):
             min_val, max_val = global_limits[key]
 
             # consistent bins
-            n_bins = 60
+            n_bins = 50
             bins = np.linspace(min_val, max_val, n_bins)
 
             # ------------------------------------------
@@ -1158,49 +1202,49 @@ def plot_comparison_heatmap_all(comparisons, eval_K, plot_dir=None):
             ax.plot([min_val, max_val], [min_val, max_val],
                     'r--', alpha=0.4, linewidth=1.2)
 
-            if key == 'value':
-                ax.axvline(0, color='black', linewidth=1, alpha=0.4)
-                ax.axhline(0, color='black', linewidth=1, alpha=0.4)
+            #if key == 'value':
+            #    ax.axvline(0, color='black', linewidth=1, alpha=0.4)
+            #    ax.axhline(0, color='black', linewidth=1, alpha=0.4)
 
             ax.set_aspect('equal')
             ax.set_xlim(min_val, max_val)
             ax.set_ylim(min_val, max_val)
 
             # ticks
-            if key == 'value':
-                ticks = [min_val, 0, max_val]
-                labels = [f"{t:.2f}" for t in ticks]
-            else:
-                ticks = np.linspace(min_val, max_val, 5)
-                labels = [f"{t:.2f}" for t in ticks]
+            fontsize = 20
+            ticks = np.linspace(min_val, max_val, 5)
+            labels = [f"{t:.0f}" for t in ticks]
 
             ax.set_xticks(ticks)
-            ax.set_xticklabels(labels, rotation=45, ha='right', fontsize=8)
+            ax.set_xticklabels(labels, rotation=0, ha='right', fontsize=fontsize)
             ax.set_yticks(ticks)
-            ax.set_yticklabels(labels, fontsize=8)
+            ax.set_yticklabels(labels, fontsize=fontsize)
 
             # legend for K
             handles = [
                 plt.Rectangle((0, 0), 1, 1,
                                color=plt.get_cmap(colormaps[i % len(colormaps)])(0.7),
-                               label=f'K={k}')
+                               label=f'$K$={k}')
                 for i, k in enumerate(eval_K)
             ]
-            ax.legend(handles=handles, fontsize=7, loc='upper left')
+            ax.legend(handles=handles, fontsize=fontsize-5, loc='upper left')
 
-            ax.set_title(title, fontsize=10)
-            ax.set_xlabel(f'{xlabel} ({method1})', fontsize=9)
-            ax.set_ylabel(f'{xlabel} ({method2})', fontsize=9)
+            # Only set title for top row
+            if row_idx == 0:
+                ax.set_title(r'\textbf{' + title + '}', fontsize=fontsize)
+            
+            # Move labels inside the frame (bottom-left corner positioning)
+                        # Move labels to middle of corresponding axes
+            ax.text(0.5, 0.02, f'{method1}', fontsize=fontsize, 
+                   transform=ax.transAxes, va='bottom', ha='center',
+                   bbox=dict(boxstyle='round,pad=0.3', facecolor='white', alpha=0.7, edgecolor='none'))
+            ax.text(0.02, 0.5, f'{method2}', fontsize=fontsize, 
+                   transform=ax.transAxes, va='center', ha='left', rotation=90,
+                   bbox=dict(boxstyle='round,pad=0.3', facecolor='white', alpha=0.7, edgecolor='none'))
 
-            if col_idx == 0:
-                ax.text(-0.45, 0.5, f"{method2}\nvs\n{method1}",
-                        transform=ax.transAxes,
-                        fontsize=10, fontweight='bold',
-                        va='center', ha='right')
 
-    sup_title = f'Comparison Heatmaps: Overlaid K Values with Consistent Axis Limits'
-    #fig.suptitle(sup_title, fontsize=14, fontweight='bold')
-    plt.subplots_adjust(wspace=0.25, hspace=0.35, left=0.12, right=0.95, top=0.88, bottom=0.12)
+    plt.subplots_adjust(wspace=0.1, hspace=0.25, left=0.08, right=0.8, top=0.88, bottom=0.12)
+
 
     if plot_dir is not None:
         os.makedirs(plot_dir, exist_ok=True)
@@ -1211,6 +1255,587 @@ def plot_comparison_heatmap_all(comparisons, eval_K, plot_dir=None):
     else:
         plt.show()
 
+def generate_baseline_trajectory(k, row, data_dir, c_pos, c_phi, directed_transmission=False, jammer_on=False, testing=False):
+    row_idx = row-1
+    
+    if testing:
+        data_name = f"test_states_K{k}_n10000.csv"
+    else:
+        data_name = f"evaluation_states_K{k}_n10000.csv"
+    data_file_path = data_dir + "/" + data_name
+    data = pd.read_csv(data_file_path)
+    print(f'Loaded {data_file_path}')
+    state = get_state_dict(data, row_idx)
+
+    #dijkstra_result = dijkstra_baseline_10nov(
+    dijkstra_result = dijkstra_baseline(
+                state['p_agents'], 
+                state['p_tx'],
+                state['p_recv'],
+                Rcom=state['Rcom'],
+                sigma=0.2,
+                beta=state['beta'],
+                c_pos=c_pos,
+                c_phi=c_phi,
+                phi_agents=state['phi_agents'] if directed_transmission else None,
+                jammer_info=state['jammer_info'] if jammer_on else None,
+                clustering=True
+            )
+    
+    # Convert trajectory dict to csv and save
+    if testing:
+        traj_path = "Testing/Data/Trajectories/Baseline"
+    else:
+        traj_path = "Evaluation/Trajectories/Baseline"
+    savepath = f"{traj_path}/baseline_K{k}_row{row}_dir{int(directed_transmission)}_jam{int(jammer_on)}_trajectory.csv"
+    os.makedirs(os.path.dirname(savepath), exist_ok=True)
+    save_trajectory(dijkstra_result, savepath=savepath, file=data_name, directed_transmission=directed_transmission, jammer_on=jammer_on, file_idx=row_idx)
+
+
+def plot_antenna_lobe(ax, position, phi, Rcom, color='orange'):
+    """
+    Plot antenna lobe (directional communication range) at a given position.
+    Uses the communication_range function to compute the actual directional pattern.
+    
+    Args:
+        ax: matplotlib axis
+        position: np.array([x, y]) position of the antenna
+        phi: antenna direction angle (in radians)
+        Rcom: communication range (used as reference)
+        color: color of the lobe (default: 'orange')
+    """
+    # Create theta range for directed transmission
+    theta_eps = 0.05
+    theta_range_dir = np.linspace(-np.pi/2 + theta_eps, np.pi/2 - theta_eps, 500)
+    
+    # Calculate communication range for this phi (directed, no jammer)
+    SINR_threshold = 1.0  # minimum SINR for communication
+    ranges_dir = [communication_range(theta, phi, C_dir=1.0, SINR_threshold=SINR_threshold, 
+                                      jammer_pos=None, p_tx=position) for theta in theta_range_dir]
+    
+    # Convert theta to actual angles (relative to antenna orientation phi)
+    actual_angles_dir = theta_range_dir + phi
+    
+    # Convert to Cartesian coordinates
+    range_x_dir = position[0] + np.array(ranges_dir) * np.cos(actual_angles_dir)
+    range_y_dir = position[1] + np.array(ranges_dir) * np.sin(actual_angles_dir)
+    
+    # Plot the communication range pattern
+    fill_alpha = 0.2
+    line_alpha = 0.7
+    linewidth = 2
+    ax.fill(range_x_dir, range_y_dir, alpha=fill_alpha, color=color, zorder=2)
+    ax.plot(range_x_dir, range_y_dir, color=color, linewidth=linewidth, 
+           alpha=line_alpha, zorder=2)
+    
+    # Draw antenna boresight arrows
+    max_range = max(ranges_dir) if ranges_dir else Rcom
+    antenna_length = 0.8 * max_range
+    antenna_end = position + antenna_length * np.array([np.cos(phi), np.sin(phi)])
+    
+    ax.arrow(position[0], position[1], 
+            antenna_end[0] - position[0], antenna_end[1] - position[1], 
+            head_width=0.04, head_length=0.04, fc=color, ec=color, 
+            linewidth=linewidth, alpha=line_alpha, zorder=3)
+
+
+def plot_trajectory(traj_dir, k, row, directed_transmission, jammer_on, method="Baseline", plot_dir=None):
+    """
+    Load and plot trajectory from a CSV file in a single figure.
+    Agents that don't move are plotted as passive agents in black.
+    
+    Args:
+        traj_dir: Directory containing trajectory files
+        k: Number of agents
+        row: Row index
+        directed_transmission: Boolean, whether directed transmission was used
+        jammer_on: Boolean, whether jammer was active
+        method: Method name (Baseline, MADDPG, MAPPO)
+    """
+    import matplotlib.pyplot as plt
+    import matplotlib.patches as patches
+    
+    # Set up LaTeX rendering and seaborn style
+    plt.rcParams['text.usetex'] = True
+    plt.rcParams['font.family'] = 'serif'
+    plt.rcParams['font.serif'] = ['Computer Modern']
+    plt.rcParams['axes.labelsize'] = 12
+    plt.rcParams['xtick.labelsize'] = 10
+    plt.rcParams['ytick.labelsize'] = 10
+    plt.rcParams['legend.fontsize'] = 10
+    plt.rcParams['figure.titlesize'] = 14
+    
+    sns.set_style("whitegrid")
+    sns.set_palette("husl")
+    
+    Rcom = 1.0
+    agent_color = 'orange'  # Color for moving agents
+    passive_color = 'black'  # Color for stationary agents
+    
+    # Construct trajectory file name
+    traj_filename = f"{method.lower()}_K{k}_row{row}_dir{int(directed_transmission)}_jam{int(jammer_on)}_trajectory.csv"
+    traj_file_path = os.path.join(traj_dir, traj_filename)
+    
+    if not os.path.exists(traj_file_path):
+        print(f"Trajectory file not found: {traj_file_path}")
+        return
+    
+    # Load trajectory data
+    traj_data = pd.read_csv(traj_file_path)
+    print(f"Loaded trajectory from {traj_file_path}")
+    print(f"Trajectory length: {len(traj_data)} time steps")
+
+    # Get list of active agents
+    active_agents = []
+    for agent_id in range(1, k+1):
+        agent_col_has_message = f'agent{agent_id}_has_message'
+        if np.any(traj_data[agent_col_has_message]):
+            active_agents.append(agent_id)
+                
+    # Extract R value from data
+    R = traj_data['R'].iloc[0] if 'R' in traj_data.columns else 10.0
+    Ra = 0.6 * R
+    
+    # Create single figure
+    fig, ax = plt.subplots(figsize=(12, 8))
+    
+    # Plot Rcom circle around transmitter
+    if jammer_on:
+        # Compute communication radius at origin with jammer present
+
+        # Compute time point and position where any agent is closest to the origin
+        min_distance_to_origin = float('inf')
+        t_closest = 0
+        closest_agent_id = 1
+
+        for t in range(len(traj_data)):
+            for agent_id in range(1, k+1):
+                agent_col_x = f'agent{agent_id}_x'
+                agent_col_y = f'agent{agent_id}_y'
+                
+                if agent_col_x in traj_data.columns and agent_col_y in traj_data.columns:
+                    agent_x = traj_data[agent_col_x].iloc[t]
+                    agent_y = traj_data[agent_col_y].iloc[t]
+                    
+                    distance_to_origin = np.sqrt(agent_x**2 + agent_y**2)
+                    
+                    if distance_to_origin < min_distance_to_origin:
+                        min_distance_to_origin = distance_to_origin
+                        t_closest = t
+                        closest_agent_id = agent_id
+        t_closest -= 2
+
+        # Position of the closest agent at t_closest
+        agent_col_x = f'agent{closest_agent_id}_x'
+        agent_col_y = f'agent{closest_agent_id}_y'
+        agent_x = traj_data[agent_col_x].iloc[t_closest]
+        agent_y = traj_data[agent_col_y].iloc[t_closest]
+        p_rec = np.array([agent_x, agent_y])
+
+        # Compute jammer position at t_closest
+        jammer_x = traj_data['jammer_x'].iloc[t_closest] if 'jammer_x' in traj_data.columns else R/2
+        jammer_y = traj_data['jammer_y'].iloc[t_closest] if 'jammer_y' in traj_data.columns else 0.0
+        p_jammer = np.array([jammer_x, jammer_y])
+
+        Rcom_tx = compute_tx_communication_radius(p_rec, p_jammer)
+
+
+    else:
+        Rcom_tx = Rcom
+    tx_circle = patches.Circle((0, 0), radius=Rcom_tx, color='blue', 
+                            fill=False, linestyle='--', linewidth=1.5, 
+                            alpha=0.5, label=r'$R_{\mathrm{com}}$')
+    ax.add_patch(tx_circle)
+    
+    # Plot agent init area (circle with radius Ra centered at (R/2, 0))
+    init_circle = patches.Circle((R/2, 0), radius=Ra, color='gray', 
+                                 fill=False, linestyle=':', linewidth=1.5, 
+                                 alpha=0.4)
+    ax.add_patch(init_circle)
+    
+    # Plot jammer capsule area if jammer is on
+    if jammer_on:
+        cap_height = 3 * Rcom
+        cap_radius = 1.5 * Rcom
+        
+        # Top line of rectangle
+        ax.plot([0, R], [cap_height/2, cap_height/2], color='red', lw=2, alpha=0.4)
+        
+        # Bottom line of rectangle
+        ax.plot([0, R], [-cap_height/2, -cap_height/2], color='red', lw=2, alpha=0.4)
+        
+        # Left half circle (outer edge only)
+        theta_left = np.linspace(np.pi/2, 3*np.pi/2, 100)
+        x_left = cap_radius * np.cos(theta_left)
+        y_left = cap_radius * np.sin(theta_left)
+        ax.plot(x_left, y_left, color='red', lw=2, alpha=0.4, label='Jammer capsule')
+        
+        # Right half circle (outer edge only)
+        theta_right = np.linspace(-np.pi/2, np.pi/2, 100)
+        x_right = R + cap_radius * np.cos(theta_right)
+        y_right = cap_radius * np.sin(theta_right)
+        ax.plot(x_right, y_right, color='red', lw=2, alpha=0.4)
+    
+    # Plot all agent trajectories with time-dependent fading
+    agent_label_added = False  # Track if we've added agent label to legend
+    passive_agent_label_added = False  # Track if we've added passive agent label to legend
+    
+    for agent_id in range(1, k+1):
+        agent_col_x = f'agent{agent_id}_x'
+        agent_col_y = f'agent{agent_id}_y'
+        
+        if agent_col_x in traj_data.columns and agent_col_y in traj_data.columns:
+            # Get initial and final positions
+            initial_x = traj_data[agent_col_x].iloc[0]
+            initial_y = traj_data[agent_col_y].iloc[0]
+            final_x = traj_data[agent_col_x].iloc[-1]
+            final_y = traj_data[agent_col_y].iloc[-1]
+            
+            is_passive = agent_id not in active_agents
+            if is_passive:
+                # Plot passive agent as a single black dot
+                ax.scatter(initial_x, initial_y, s=150, alpha=0.8, edgecolors='darkgrey', 
+                          linewidth=2, color=passive_color, marker='o', zorder=4)
+                
+                # Add passive agent label only once to legend
+                if not passive_agent_label_added:
+                    ax.plot([], [], alpha=0.8, linewidth=2, color=passive_color, marker='o', 
+                           markersize=8, linestyle='none', label='Passive agent')
+                    passive_agent_label_added = True
+            else:
+                # Plot initial position in grey
+                ax.scatter(initial_x, initial_y, s=100, alpha=0.5, edgecolors='darkgrey', 
+                          linewidth=1.5, color='grey', marker='o', zorder=3)
+                
+                # Plot trajectory segments with time-dependent alpha
+                x_coords = traj_data[agent_col_x].values
+                y_coords = traj_data[agent_col_y].values
+                t_max = len(x_coords) - 1
+                
+                for t in range(len(x_coords) - 1):
+                    # Alpha increases with time (0 at start, 1 at end)
+                    alpha_val = 0.2 + 0.8 * (t / t_max)  # Range from 0.2 to 1.0
+                    
+                    ax.plot(x_coords[t:t+2], y_coords[t:t+2], 
+                           alpha=alpha_val, linewidth=2, color=agent_color)
+                
+                # Plot final position as agent color dot
+                ax.scatter(final_x, final_y, s=150, alpha=0.8, edgecolors='darkorange', 
+                          linewidth=2, color=agent_color, marker='o', zorder=4)
+                
+                # Plot Rcom circle around final position ONLY for Baseline method
+                if not directed_transmission and jammer_on == False:
+                    if method.lower() == "baseline":
+                        agent_rcom_circle = patches.Circle((final_x, final_y), radius=Rcom, 
+                                                        color=agent_color, fill=False, linestyle='--', 
+                                                        linewidth=1.5, alpha=0.3)
+                        ax.add_patch(agent_rcom_circle)
+                
+                # Add agent label only once to legend
+                if not agent_label_added:
+                    ax.plot([], [], alpha=0.6, linewidth=2, color=agent_color, label='Active agent trajectory')
+                    agent_label_added = True
+    
+    # Plot transmitter (origin) in blue
+    ax.scatter(0, 0, s=300, marker='s', color='blue', alpha=0.8, 
+              edgecolors='darkblue', linewidth=2, label=r'$\mathrm{TX}$', zorder=5)
+    
+    # Plot receiver at (R, 0) in green
+    ax.scatter(R, 0, s=300, marker='s', color='green', alpha=0.8, 
+              edgecolors='darkgreen', linewidth=2, label=r'$\mathrm{RX}$', zorder=5)
+
+    # Plot antenna orientations at final positions if directed transmission
+    if directed_transmission:
+        for agent_id in range(1, k+1):
+            agent_col_x = f'agent{agent_id}_x'
+            agent_col_y = f'agent{agent_id}_y'
+            agent_col_phi = f'agent{agent_id}_phi'
+            
+            if agent_col_x in traj_data.columns and agent_col_y in traj_data.columns and agent_col_phi in traj_data.columns:
+                # Get final position and antenna direction
+                final_x = traj_data[agent_col_x].iloc[-1]
+                final_y = traj_data[agent_col_y].iloc[-1]
+                final_phi = traj_data[agent_col_phi].iloc[-1]
+                
+                # Plot antenna lobe at final position
+                plot_antenna_lobe(ax, np.array([final_x, final_y]), final_phi, Rcom, agent_color)
+
+    
+    # Plot jammer trajectory if present
+    jammer_col_x = 'jammer_x'
+    jammer_col_y = 'jammer_y'
+    if jammer_col_x in traj_data.columns and jammer_col_y in traj_data.columns:
+        # Filter out NaN values
+        jammer_data = traj_data[[jammer_col_x, jammer_col_y]].dropna()
+        if len(jammer_data) > 0:
+            ax.plot(jammer_data[jammer_col_x], jammer_data[jammer_col_y], 
+                   alpha=0.6, linewidth=2, linestyle='--', label='Jammer path', color='red')
+            
+            # Plot final jammer position
+            final_jammer_x = jammer_data[jammer_col_x].iloc[-1]
+            final_jammer_y = jammer_data[jammer_col_y].iloc[-1]
+            ax.scatter(final_jammer_x, final_jammer_y, s=200, marker='^', 
+                      color='red', alpha=0.8, edgecolors='darkred', linewidth=2)
+            
+            # Plot jamming radius at final position
+            jammer_circle = patches.Circle((final_jammer_x, final_jammer_y), radius=1.0, 
+                                          color='red', alpha=0.1, linestyle='--', linewidth=1.5)
+            ax.add_patch(jammer_circle)
+    
+    # Set axis properties
+    ax.set_aspect('equal')
+    ax.grid(True, alpha=0.3, linestyle='--')
+    ax.set_xlabel(r'$x$', fontsize=12, fontweight='bold')
+    ax.set_ylabel(r'$y$', fontsize=12, fontweight='bold')
+    
+    # Set axis limits with margin
+    all_x = [0, R]  # Include TX and RX
+    all_y = [0]
+    for agent_id in range(1, k+1):
+        agent_col_x = f'agent{agent_id}_x'
+        agent_col_y = f'agent{agent_id}_y'
+        if agent_col_x in traj_data.columns:
+            all_x.extend(traj_data[agent_col_x].dropna())
+            all_y.extend(traj_data[agent_col_y].dropna())
+    
+    if jammer_col_x in traj_data.columns:
+        all_x.extend(traj_data[jammer_col_x].dropna())
+        all_y.extend(traj_data[jammer_col_y].dropna()) 
+    
+    if all_x and all_y:
+        ax.set_xlim(-0.2*Ra, R+0.2*Ra)
+        ax.set_ylim(-1.1*Ra, 1.1*Ra)
+    
+    # Add legend and title
+    ax.legend(loc='upper left')
+    title = fr'Trajectory: {method} $K={k}$ Row={row}' + '\n' + \
+            fr'directed$={int(directed_transmission)}$, jammer$={int(jammer_on)}$'
+    ax.set_title(title, fontsize=14, fontweight='bold', pad=20)
+    
+    plt.tight_layout()
+
+    # Save plot if plot_dir is provided
+    if plot_dir:
+        os.makedirs(plot_dir, exist_ok=True)
+        plot_filename = f"{method.lower()}_K{k}_row{row}_dir{int(directed_transmission)}_jam{int(jammer_on)}.pdf"
+        plot_path = os.path.join(plot_dir, plot_filename)
+        plt.savefig(plot_path, format='pdf', dpi=300, bbox_inches='tight',
+                   facecolor='white', edgecolor='none', transparent=False)
+        print(f"Saved trajectory plot to {plot_path}")
+    else:
+        plt.show()
+
+
+def animate_trajectory(traj_dir, k, row, directed_transmission, jammer_on, method="Baseline", anim_dir=None):
+    """Fast animation using figure reuse and incremental updates."""
+    import matplotlib.pyplot as plt
+    import matplotlib.patches as patches
+    from PIL import Image
+    
+    plt.rcParams['text.usetex'] = True
+    plt.rcParams['font.family'] = 'serif'
+    plt.rcParams['font.serif'] = ['Computer Modern']
+    
+    sns.set_style("whitegrid")
+    sns.set_palette("husl")
+    
+    Rcom = 1.0
+    agent_color_no_message = 'orange'
+    agent_color_with_message = 'green'
+    passive_color = 'black'
+    
+    traj_filename = f"{method.lower()}_K{k}_row{row}_dir{int(directed_transmission)}_jam{int(jammer_on)}_trajectory.csv"
+    traj_file_path = os.path.join(traj_dir, traj_filename)
+    
+    if not os.path.exists(traj_file_path):
+        print(f"Trajectory file not found: {traj_file_path}")
+        return
+    
+    traj_data = pd.read_csv(traj_file_path)
+    print(f"Loaded trajectory from {traj_file_path}")
+    print(f"Trajectory length: {len(traj_data)} time steps")
+    
+    R = traj_data['R'].iloc[0] if 'R' in traj_data.columns else 10.0
+    Ra = 0.6 * R
+
+    # Get list of active agents
+    active_agents = []
+    for agent_id in range(1, k+1):
+        agent_col_has_message = f'agent{agent_id}_has_message'
+        if np.any(traj_data[agent_col_has_message]):
+            active_agents.append(agent_id)
+    
+    # Precompute agent passive status
+    agent_passive_status = {}
+    for agent_id in range(1, k+1):
+        agent_col_x = f'agent{agent_id}_x'
+        agent_col_y = f'agent{agent_id}_y'
+        
+        if agent_col_x in traj_data.columns and agent_col_y in traj_data.columns:
+            initial_x = traj_data[agent_col_x].iloc[0]
+            initial_y = traj_data[agent_col_y].iloc[0]
+            final_x = traj_data[agent_col_x].iloc[-1]
+            final_y = traj_data[agent_col_y].iloc[-1]
+            
+            is_passive = agent_id not in active_agents
+            agent_passive_status[agent_id] = (is_passive, initial_x, initial_y, final_x, final_y)
+    
+    # ===== CREATE FIGURE ONCE =====
+    fig, ax = plt.subplots(figsize=(12, 8))
+    fig.canvas.draw()
+    
+    # Precompute static elements
+    ax.set_aspect('equal')
+    ax.grid(True, alpha=0.3, linestyle='--')
+    ax.set_xlabel(r'$x$', fontsize=12, fontweight='bold')
+    ax.set_ylabel(r'$y$', fontsize=12, fontweight='bold')
+    ax.set_xlim(-0.2*Ra, R+0.2*Ra)
+    ax.set_ylim(-1.1*Ra, 1.1*Ra)
+    
+    # Draw static background once
+    tx_circle = patches.Circle((0, 0), radius=Rcom, color='blue', 
+                               fill=False, linestyle='--', linewidth=1.5, alpha=0.5)
+    ax.add_patch(tx_circle)
+    
+    init_circle = patches.Circle((R/2, 0), radius=Ra, color='gray', 
+                                 fill=False, linestyle=':', linewidth=1.5, alpha=0.4)
+    ax.add_patch(init_circle)
+    
+    if jammer_on:
+        cap_height = 3 * Rcom
+        cap_radius = 1.5 * Rcom
+        ax.plot([0, R], [cap_height/2, cap_height/2], color='red', lw=2, alpha=0.4)
+        ax.plot([0, R], [-cap_height/2, -cap_height/2], color='red', lw=2, alpha=0.4)
+        theta_left = np.linspace(np.pi/2, 3*np.pi/2, 100)
+        ax.plot(cap_radius * np.cos(theta_left), cap_radius * np.sin(theta_left), 
+               color='red', lw=2, alpha=0.4)
+        theta_right = np.linspace(-np.pi/2, np.pi/2, 100)
+        ax.plot(R + cap_radius * np.cos(theta_right), cap_radius * np.sin(theta_right), 
+               color='red', lw=2, alpha=0.4)
+    
+    # Static elements (TX, RX)
+    ax.scatter(0, 0, s=300, marker='s', color='blue', alpha=0.8, 
+              edgecolors='darkblue', linewidth=2, zorder=5)
+    ax.scatter(R, 0, s=300, marker='s', color='green', alpha=0.8, 
+              edgecolors='darkgreen', linewidth=2, zorder=5)
+    
+    pil_frames = []
+    num_frames = len(traj_data)
+    dur_frame = 5
+    
+    print(f"Generating {num_frames} frames...")
+    
+    for t in range(num_frames):
+        # Clear only dynamic content using while loops
+        while len(ax.get_lines()) > 0:
+            ax.get_lines()[-1].remove()
+        while len(ax.patches) > 2:
+            ax.patches[-1].remove()
+        while len(ax.collections) > 2:
+            ax.collections[-1].remove()
+        
+        # Draw trajectory paths (dynamic)
+        for agent_id in range(1, k+1):
+            agent_col_x = f'agent{agent_id}_x'
+            agent_col_y = f'agent{agent_id}_y'
+            agent_col_phi = f'agent{agent_id}_phi'
+            agent_col_has_message = f'agent{agent_id}_has_message'
+            
+            if agent_col_x not in traj_data.columns:
+                continue
+            
+            is_passive, init_x, init_y, final_x, final_y = agent_passive_status[agent_id]
+            
+            # Check if agent has message at current time
+            has_message_current = False
+            if agent_col_has_message in traj_data.columns:
+                has_message_current = bool(traj_data[agent_col_has_message].iloc[t])
+            
+            # Determine agent color based on message status
+            agent_color = agent_color_with_message if has_message_current else agent_color_no_message
+            
+            if is_passive:
+                ax.scatter(init_x, init_y, s=150, alpha=0.8, edgecolors='darkgrey', 
+                        linewidth=2, color=passive_color, marker='o', zorder=4)
+            else:
+                x_coords = traj_data[agent_col_x].values[:t+1]
+                y_coords = traj_data[agent_col_y].values[:t+1]
+                
+                if len(x_coords) > 1:
+                    # Plot path segments
+                    for time_idx in range(len(x_coords) - 1):
+                        alpha_val = 0.2 + 0.8 * (time_idx / max(len(x_coords) - 1, 1))
+                        ax.plot(x_coords[time_idx:time_idx+2], y_coords[time_idx:time_idx+2], 
+                            alpha=alpha_val, linewidth=2, color=agent_color)
+                
+                # Current position
+                ax.scatter(x_coords[-1], y_coords[-1], s=150, alpha=0.8, 
+                        edgecolors=agent_color if has_message_current else 'darkorange', 
+                        linewidth=2, color=agent_color, 
+                        marker='o', zorder=4)
+                
+                # Plot Rcom circle for baseline method (only if not directed transmission)
+                if method.lower() == "baseline" and not directed_transmission:
+                    agent_rcom = patches.Circle((x_coords[-1], y_coords[-1]), 
+                                            radius=Rcom, color=agent_color, fill=False, 
+                                            linestyle='--', linewidth=1.5, alpha=0.3)
+                    ax.add_patch(agent_rcom)
+                
+                # Plot antenna lobe at current position if directed transmission
+                if directed_transmission and agent_col_phi in traj_data.columns:
+                    current_phi = traj_data[agent_col_phi].iloc[t]
+                    plot_antenna_lobe(ax, np.array([x_coords[-1], y_coords[-1]]), current_phi, Rcom, agent_color)
+        
+        # Jammer (if present)
+        jammer_col_x = 'jammer_x'
+        jammer_col_y = 'jammer_y'
+        if jammer_col_x in traj_data.columns:
+            jammer_data = traj_data[[jammer_col_x, jammer_col_y]].iloc[:t+1].dropna()
+            if len(jammer_data) > 0:
+                ax.plot(jammer_data[jammer_col_x], jammer_data[jammer_col_y], 
+                       alpha=0.6, linewidth=2, linestyle='--', color='red')
+                final_jammer_x = jammer_data[jammer_col_x].iloc[-1]
+                final_jammer_y = jammer_data[jammer_col_y].iloc[-1]
+                ax.scatter(final_jammer_x, final_jammer_y, s=200, marker='^', 
+                          color='red', alpha=0.8, edgecolors='darkred', linewidth=2)
+        
+        # Update title only
+        title = fr'Trajectory: {method} $K={k}$, row={row}' + f', $t = {t}$' + '\n' + \
+                fr'directed$={int(directed_transmission)}$, jammer$={int(jammer_on)}$'
+        ax.set_title(title, fontsize=14, fontweight='bold', pad=20)
+        
+        # Draw and capture
+        fig.canvas.draw()
+        buf = fig.canvas.buffer_rgba()
+        image_array = np.frombuffer(buf, dtype=np.uint8)
+        image_array = image_array.reshape(fig.canvas.get_width_height()[::-1] + (4,))
+        image_rgb = image_array[:, :, :3]
+        
+        pil_frames.append(Image.fromarray(image_rgb, 'RGB'))
+        
+        if (t + 1) % max(1, num_frames // 10) == 0 or t == 0:
+            print(f"  Generated frame {t+1}/{num_frames}")
+    
+    
+    # Save GIF
+    if anim_dir:
+        os.makedirs(anim_dir, exist_ok=True)
+        gif_path = os.path.join(anim_dir, 
+                               f"{method.lower()}_K{k}_row{row}_dir{int(directed_transmission)}_jam{int(jammer_on)}.gif")
+        
+        print(f"\nSaving animation to {gif_path}...")
+        pil_frames[0].save(gif_path, save_all=True, append_images=pil_frames[1:], 
+                          duration=dur_frame, loop=0)
+        
+        print(f"✓ Saved animation to {gif_path}")
+        print(f"  Total frames: {len(pil_frames)}")
+        print(f"  Duration per frame: {dur_frame}ms")
+    else:
+        plt.show()
+
+        
+    plt.close(fig)
+
 
 def main():
     # Choose evaluation mode
@@ -1218,37 +1843,43 @@ def main():
     # (USE) 1-evaluate single policy  
     # 2-compare baseline policies 
     # 3-examine specific instances 
-    # 4-plot/animate solutions of specific instances
-    # 5-plot init scenario
+    # (USE DEBUG) 4-plot/animate solutions of specific instances
+    # (USE DEBUG) 5-plot init scenario
     # 6-compare scenarios for one specific policy
     # 7-compare multiple policies simultaneously
     # 8-save trajectory from specific scenario
     # (USE) 9-evaluate specified methods on a specific scenario  
     # (USE) 10-compare baseline and MADDPG or MAPPO policy  
     # 11-violin plot of value, delivery time, and total distance (maybe use SMAPE) vs K
-    # 12-generate trajectory data from the baseline (runs Dijkstra)
-    # 13-plot trajectory (takes trajectory file)
-    # 14-animation trajectory (takes trajectory file)
+    # (USE)12-generate trajectory data from the baseline (runs Dijkstra)
+    # (TODO)13-plot trajectory (takes trajectory file)
+    # (TODO)14-animation trajectory (takes trajectory file)
     # 15-compare mappo and maddpg against each other
-    # 16-heatmaps over all K simultaneously for one scenario
-    # 17-heatmaps over all K simultaneously for all scenarios but only value (4x3 subplots)
+    # (USE) 16-heatmaps over all K and methods simultaneously for one scenario
+    # (TODO)17-heatmaps over all K simultaneously for all scenarios but only value (4x3 subplots)
+    # (TODO)18-for a trajectory, plot the resulting policies  (3x1)
+    # (TODO)19- -||- animation results  (3x1)
 
     
     testing = False  # are we running on test data? (FINAL DATA) False -> Evaluation data
 
-    eval_mode = 16
+    eval_mode = 13
+
+
+    eval_K = [3,5] 
+    value_remove_below = 0  
+    value_remove_above = 4 
+    time_remove_below = -0  
+    time_remove_above = 65 
+    dist_remove_below = 0  
+    dist_remove_above = 40 
+
+    
     present_mode = "violin"  # hist ; violin
     compare_mode = "violin"  # hist ; scatter ; heatmap; violin
 
-    # Eval 9:
-    eval_K = [3,5] 
-    remove_below = -0  
-    remove_above = 4 
-
-    
-
     # Configuration
-    K_start = 3
+    K_start = 1
     K_end = 10
     K = range(K_start, K_end+1)
     row_start = 1  # +1 of row_idx
@@ -1258,7 +1889,7 @@ def main():
     c_phi = 0.1  # antenna cost parameter
     
     directed_transmission = False 
-    jammer_on = False
+    jammer_on = True
     clustering_on = True 
     minimize_distance = False  # minimize total movement instead of fasted delivery time
 
@@ -1435,7 +2066,7 @@ def main():
                     clustering=clustering_on
                 )
 
-                savepath = f"Plots/Evaluation_plots/{date}/{conf_string}/Negative_instances/K{k}_row{row}.png"
+                savepath = f"Plots/Evaluation_plots/{conf_string}/Negative_instances/K{k}_row{row}.png"
                 os.makedirs(os.path.dirname(savepath), exist_ok=True)
                 plot_scenario_with_path_colored(state, dijkstra_result, 
                                                 savepath=savepath, jammer=False, debug=False)
@@ -1447,12 +2078,12 @@ def main():
         state = get_state_dict(data, row_idx)
         #plot_scenario(state, directed=False, jammer=False, savepath=None, debug=True)
         #directed_transmission = None
-        only_init = False
+        only_init = True
         c_phi = 0.1
 
-        #plot_scenario(state, directed=directed_transmission, jammer=jammer_on, savepath=None, debug=True)
-
-        if not only_init:
+        if only_init:
+            plot_scenario(state, directed=directed_transmission, jammer=jammer_on, savepath=None, debug=True)
+        else:
             dijkstra_result = dijkstra_baseline_10nov(
                         state['p_agents'], 
                         state['p_tx'],
@@ -1479,9 +2110,29 @@ def main():
     
         row_idx = row_start-1
         k = 1
-        data = pd.read_csv(data_file_paths[0])
+        if testing:
+            data_name = "test_states_K{k}_n10000.csv"
+        else:
+            data_name = "evaluation_states_K{k}_n10000.csv"
+        data_file_path = data_dir + "/" + data_name
+        data = pd.read_csv(data_file_path)
         state = get_state_dict(data, row_idx)
-        plot_scenario(state, directed=directed_transmission, jammer=False, savepath=None, debug=True)
+        #plot_scenario(state, directed=directed_transmission, jammer=False, savepath=None, debug=True)
+
+        dijkstra_result = dijkstra_baseline(
+                    state['p_agents'], 
+                    state['p_tx'],
+                    state['p_recv'],
+                    Rcom=state['Rcom'],
+                    sigma=0.2,
+                    beta=state['beta'],
+                    c_pos=c_pos,
+                    c_phi=c_phi,
+                    phi_agents=state['phi_agents'] if directed_transmission else None,
+                    jammer_info=state['jammer_info'] if jammer_on else None,
+                    clustering=True
+        )
+        plot_scenario_with_path_colored(state, dijkstra_result, savepath=None, directed_transmission=False, jammer=False, debug=False)
     elif eval_mode == 7:  # Evaluate and compare multiple policies simultaneously
         # Load the evaluation data files of interest
         k = K_start
@@ -1558,11 +2209,11 @@ def main():
 
                 # Remove outliers based on value 
                 # Count number of removed entries
-                num_removed_baseline = len(baseline_data) - len(baseline_data[baseline_data['value'] >= remove_below])
-                num_removed_maddpg = len(maddpg_data) - len(maddpg_data[maddpg_data['value'] >= remove_below])
-                print(f"K={k}: Removed {num_removed_baseline} baseline entries and {num_removed_maddpg} MADDPG entries below value {remove_below}")
-                baseline_data = baseline_data[baseline_data['value'] >= remove_below].reset_index(drop=True)
-                maddpg_data = maddpg_data[maddpg_data['value'] >= remove_below].reset_index(drop=True)
+                num_removed_baseline = len(baseline_data) - len(baseline_data[baseline_data['value'] >= value_remove_below])
+                num_removed_maddpg = len(maddpg_data) - len(maddpg_data[maddpg_data['value'] >= value_remove_below])
+                print(f"K={k}: Removed {num_removed_baseline} baseline entries and {num_removed_maddpg} MADDPG entries below value {value_remove_below}")
+                baseline_data = baseline_data[baseline_data['value'] >= value_remove_below].reset_index(drop=True)
+                maddpg_data = maddpg_data[maddpg_data['value'] >= value_remove_below].reset_index(drop=True)
                 
                 baseline_results = baseline_data.to_dict(orient='records')
                 baseline_results_dict[k] = baseline_results
@@ -1614,31 +2265,75 @@ def main():
 
         plot_comparison_heatmap(results_baseline, result_marl, "baseline", marl_alg, 
                                             plot_dir=eval_plot_dir, k=K_start)
-    elif eval_mode == 12:  # Generate trajectory data from the baseline
-        row_idx = row_start-1
-        k = K_start
-        data = pd.read_csv(data_file_paths[0])
-        print(f'Loaded {data_file_paths[0]}')
-        state = get_state_dict(data, row_idx)
+    elif eval_mode == 13:  # Plot trajectory (takes trajectory file)
 
-        dijkstra_result = dijkstra_baseline_10nov(
-                    state['p_agents'], 
-                    state['p_tx'],
-                    state['p_recv'],
-                    Rcom=state['Rcom'],
-                    sigma=0.2,
-                    beta=state['beta'],
-                    c_pos=c_pos,
-                    c_phi=c_phi,
-                    phi_agents=state['phi_agents'] if directed_transmission else None,
-                    jammer_info=state['jammer_info'] if jammer_on else None,
-                    clustering=True
-                )
+        k = 2
+        row = 2
+        method = "Baseline"  # Baseline or MADDPG or MAPPO
+        force_gen_traj = True
+
+        if testing:
+            traj_dir = f"Testing/Data/Trajectories/{method}"
+            data_dir = "Testing/Data/Test_states"
+            plot_dir = f"Testing/Plots/{method}/Trajectories/{conf_string}"
+        else:
+            traj_dir = f"Evaluation/Trajectories/{method}"
+            data_dir = "Evaluation/Evaluation_states/Data"
+            plot_dir = f"Evaluation/Plots/{method}/Trajectories/{conf_string}"
+
+        # Construct trajectory file name to check if it exists
+        traj_filename = f"{method.lower()}_K{k}_row{row}_dir{int(directed_transmission)}_jam{int(jammer_on)}_trajectory.csv"
+        traj_file_path = os.path.join(traj_dir, traj_filename)
         
-        # Convert trajectory dict to csv and save
-        savepath = f"Evaluation/Evaluation_states/Trajectories/K{k}_row{row_start}_trajectory.csv"
-        os.makedirs(os.path.dirname(savepath), exist_ok=True)
-        save_trajectory(dijkstra_result, savepath=savepath)
+        # If trajectory doesn't exist and method is Baseline, generate it
+        if not os.path.exists(traj_file_path) or force_gen_traj:
+            print(f"Trajectory file not found: {traj_file_path}")
+            if method.lower() == "baseline":
+                print(f"Generating baseline trajectory...")
+                generate_baseline_trajectory(k, row, data_dir, c_pos, c_phi, 
+                                            directed_transmission=directed_transmission, 
+                                            jammer_on=jammer_on, 
+                                            testing=testing)
+            else:
+                print(f"Trajectory file not found and method is not Baseline. Cannot generate.")
+        
+        # Plot the trajectory
+        plot_trajectory(traj_dir, k, row, directed_transmission, jammer_on, method=method, plot_dir=plot_dir)
+    elif eval_mode == 14:  # Plot trajectory (takes trajectory file)
+
+        k = 1
+        row = 1
+        #directed_transmission = False
+        method = "Baseline"  # Baseline or MADDPG or MAPPO
+        force_gen_traj = True
+
+        if testing:
+            traj_dir = f"Testing/Data/Trajectories/{method}"
+            data_dir = "Testing/Data/Test_states"
+            anim_dir = f"Testing/Animation/{method}/Trajectories/{conf_string}"
+        else:
+            traj_dir = f"Evaluation/Trajectories/{method}"
+            data_dir = "Evaluation/Evaluation_states/Data"
+            anim_dir = f"Evaluation/Animation/{method}/Trajectories/{conf_string}"
+
+        # Construct trajectory file name to check if it exists
+        traj_filename = f"{method.lower()}_K{k}_row{row}_dir{int(directed_transmission)}_jam{int(jammer_on)}_trajectory.csv"
+        traj_file_path = os.path.join(traj_dir, traj_filename)
+        
+        # If trajectory doesn't exist and method is Baseline, generate it
+        if not os.path.exists(traj_file_path) or force_gen_traj:
+            print(f"Trajectory file not found: {traj_file_path}")
+            if method.lower() == "baseline":
+                print(f"Generating baseline trajectory...")
+                generate_baseline_trajectory(k, row, data_dir, c_pos, c_phi, 
+                                            directed_transmission=directed_transmission, 
+                                            jammer_on=jammer_on, 
+                                            testing=testing)
+            else:
+                print(f"Trajectory file not found and method is not Baseline. Cannot generate.")
+        
+        # Animate the trajectory
+        animate_trajectory(traj_dir, k, row, directed_transmission, jammer_on, method=method, anim_dir=anim_dir)
     elif eval_mode == 15:  # Compare MAPPO and MADDPG
         # Determine which algorithm folders to use
         mappo_alg = "MAPPO"
@@ -1667,10 +2362,10 @@ def main():
         else:
             data_maddpg = pd.read_csv(eval_data_file_path_maddpg)
 
-        # Filter rows where BOTH algorithms have value >= remove_below
+        # Filter rows where BOTH algorithms have value >= value_remove_below
         # This ensures the same data points are kept for both
-        valid_indices_mappo = data_mappo[data_mappo['value'] >= remove_below].index
-        valid_indices_maddpg = data_maddpg[data_maddpg['value'] >= remove_below].index
+        valid_indices_mappo = data_mappo[data_mappo['value'] >= value_remove_below].index
+        valid_indices_maddpg = data_maddpg[data_maddpg['value'] >= value_remove_below].index
         
         # Keep only rows that are valid in BOTH datasets
         valid_indices = valid_indices_mappo.intersection(valid_indices_maddpg)
@@ -1720,7 +2415,7 @@ def main():
         # Define all methods and their file paths
         methods_data = {}
         
-        # Load baseline results
+                # Load baseline results
         print("Loading baseline results...")
         baseline_results_dict = {}
         for k in eval_K:
@@ -1729,6 +2424,15 @@ def main():
             if os.path.exists(eval_data_file_path):
                 data = pd.read_csv(eval_data_file_path)
                 baseline_results_dict[k] = data.to_dict(orient='records')
+                
+                # Validation checks
+                min_delivery_time = data['delivery_time'].min()
+                min_distance = data['agent_sum_distance'].min()
+                if min_delivery_time < 1:
+                    raise ValueError(f"Baseline K={k}: Minimum delivery_time ({min_delivery_time}) is less than 1")
+                if min_distance < 0:
+                    raise ValueError(f"Baseline K={k}: Minimum agent_sum_distance ({min_distance}) is less than 0")
+                
                 print(f"  Loaded baseline K={k}: {len(baseline_results_dict[k])} entries")
             else:
                 print(f"  Warning: Baseline file not found for K={k}: {eval_data_file_path}")
@@ -1742,6 +2446,15 @@ def main():
             if os.path.exists(eval_data_file_path):
                 data = pd.read_csv(eval_data_file_path)
                 maddpg_results_dict[k] = data.to_dict(orient='records')
+                
+                # Validation checks
+                min_delivery_time = data['delivery_time'].min()
+                min_distance = data['agent_sum_distance'].min()
+                if min_delivery_time < 1:
+                    raise ValueError(f"MADDPG K={k}: Minimum delivery_time ({min_delivery_time}) is less than 1")
+                if min_distance < 0:
+                    raise ValueError(f"MADDPG K={k}: Minimum agent_sum_distance ({min_distance}) is less than 0")
+                
                 print(f"  Loaded MADDPG K={k}: {len(maddpg_results_dict[k])} entries")
             else:
                 print(f"  Warning: MADDPG file not found for K={k}: {eval_data_file_path}")
@@ -1755,36 +2468,46 @@ def main():
             if os.path.exists(eval_data_file_path):
                 data = pd.read_csv(eval_data_file_path)
                 mappo_results_dict[k] = data.to_dict(orient='records')
+                
+                # Validation checks
+                min_delivery_time = data['delivery_time'].min()
+                min_distance = data['agent_sum_distance'].min()
+                if min_delivery_time < 1:
+                    raise ValueError(f"MAPPO K={k}: Minimum delivery_time ({min_delivery_time}) is less than 1")
+                if min_distance < 0:
+                    raise ValueError(f"MAPPO K={k}: Minimum agent_sum_distance ({min_distance}) is less than 0")
+                
                 print(f"  Loaded MAPPO K={k}: {len(mappo_results_dict[k])} entries")
             else:
                 print(f"  Warning: MAPPO file not found for K={k}: {eval_data_file_path}")
         
-        # Filter all results using remove_below threshold
-        print(f"\nFiltering results with value >= {remove_below}...")
+        
+        # Filter all results using value, delivery_time, and agent_sum_distance thresholds
+        print(f"\nFiltering results with value [{value_remove_below}, {value_remove_above}], "
+              f"delivery_time [{time_remove_below}, {time_remove_above}], "
+              f"agent_sum_distance [{dist_remove_below}, {dist_remove_above}]...")
         for k in eval_K:
             # Find valid indices for all three methods
             valid_indices_baseline = set(range(len(baseline_results_dict[k]))) if k in baseline_results_dict else set()
             valid_indices_maddpg = set(range(len(maddpg_results_dict[k]))) if k in maddpg_results_dict else set()
             valid_indices_mappo = set(range(len(mappo_results_dict[k]))) if k in mappo_results_dict else set()
             
-            # Filter all results using remove_below and remove_above thresholds
-        print(f"\nFiltering results with {remove_below} <= value <= {remove_above}...")
-        for k in eval_K:
-            # Find valid indices for all three methods
-            valid_indices_baseline = set(range(len(baseline_results_dict[k]))) if k in baseline_results_dict else set()
-            valid_indices_maddpg = set(range(len(maddpg_results_dict[k]))) if k in maddpg_results_dict else set()
-            valid_indices_mappo = set(range(len(mappo_results_dict[k]))) if k in mappo_results_dict else set()
-            
-            # Filter by value threshold (both below and above)
+            # Filter by all thresholds
             if k in baseline_results_dict:
                 valid_indices_baseline = {i for i, r in enumerate(baseline_results_dict[k]) 
-                                         if remove_below <= r.get('value', float('-inf')) <= remove_above}
+                                         if (value_remove_below <= r.get('value', float('-inf')) <= value_remove_above and
+                                             time_remove_below <= r.get('delivery_time', float('-inf')) <= time_remove_above and
+                                             dist_remove_below <= r.get('agent_sum_distance', float('-inf')) <= dist_remove_above)}
             if k in maddpg_results_dict:
                 valid_indices_maddpg = {i for i, r in enumerate(maddpg_results_dict[k]) 
-                                       if remove_below <= r.get('value', float('-inf')) <= remove_above}
+                                       if (value_remove_below <= r.get('value', float('-inf')) <= value_remove_above and
+                                           time_remove_below <= r.get('delivery_time', float('-inf')) <= time_remove_above and
+                                           dist_remove_below <= r.get('agent_sum_distance', float('-inf')) <= dist_remove_above)}
             if k in mappo_results_dict:
                 valid_indices_mappo = {i for i, r in enumerate(mappo_results_dict[k]) 
-                                      if remove_below <= r.get('value', float('-inf')) <= remove_above}
+                                      if (value_remove_below <= r.get('value', float('-inf')) <= value_remove_above and
+                                          time_remove_below <= r.get('delivery_time', float('-inf')) <= time_remove_above and
+                                          dist_remove_below <= r.get('agent_sum_distance', float('-inf')) <= dist_remove_above)}
             
             # Keep only indices that are valid in ALL methods
             common_indices = valid_indices_baseline & valid_indices_maddpg & valid_indices_mappo
@@ -1804,7 +2527,7 @@ def main():
                 num_before = len(mappo_results_dict[k])
                 mappo_results_dict[k] = [r for i, r in enumerate(mappo_results_dict[k]) if i in common_indices]
                 print(f"  MAPPO K={k}: {len(mappo_results_dict[k])} entries after filtering (removed {num_before - len(mappo_results_dict[k])})")
-        
+
         # Create comparison plots
         comparisons = [
             ("baseline", "MADDPG", baseline_results_dict, maddpg_results_dict),
@@ -1819,45 +2542,6 @@ def main():
         plot_comparison_heatmap_all(comparisons, eval_K, plot_dir=eval_plot_dir)
                 
         
-
-    # Print summary statistics
-    """
-    values = [r['value'] for r in result if 'value' in r]
-    print(f"\nStatistics:")
-    print(f"Mean: {np.mean(values):.4f}")
-    print(f"Std: {np.std(values):.4f}")
-    print(f"Min: {np.min(values):.4f}")
-    print(f"Max: {np.max(values):.4f}")
-    """
-
-    # Evaluate instances with value lower or higher than threshold
-    """
-    rows_below_zero = get_rows_by_value(result, 0.0, mode='lower')
-    print(rows_below_zero)
-
-    # Read data files again to get state dicts
-    data_file = data_file_paths[0]
-    data = pd.read_csv(data_file)
-
-    for row_idx in rows_below_zero:
-        state = get_state_dict(data, row_idx)
-
-        dijkstra_result = dijkstra_baseline(
-            state['p_agents'], 
-            state['p_tx'],
-            state['p_recv'],
-            Rcom=state['Rcom'],
-            sigma=state['sigma'],
-            beta=state['beta'],
-            c_pos=c_pos,
-            directed_transmission=directed_transmission,
-            jammer=jammer_on,
-            clustering=clustering_on
-        )
-
-        plot_scenario_with_path_colored(state, dijkstra_result, 
-                                        savepath=None, jammer=False, debug=False)
-    """
                                         
 if __name__ == "__main__":
     main()
