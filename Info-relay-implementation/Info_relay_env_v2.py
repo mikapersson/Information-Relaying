@@ -67,7 +67,7 @@ class Info_relay_env(ParallelEnv):
                  continuous_actions = True, one_hot_vector = False, antenna_used = True, 
                  com_used = True, num_messages = 1, base_always_transmitting = True, 
                  observe_self = True, render_mode = None, using_half_velocity = False,
-                 pre_determined_scenario = False, num_CL_episodes = 0, num_r_help_episodes = 0,
+                 pre_determined_scenario = True, num_CL_episodes = 0, num_r_help_episodes = 0,
                  evaluating = True):
         
         #if evaluating: # if evaluating is run turn of all help - not automatic yet
@@ -545,7 +545,7 @@ class Info_relay_env(ParallelEnv):
         if self.pre_determined_scenario:
             if self.scenario_index_counter > 0:
                 self.apply_pre_loaded_scenario()
-                self.evaluation_logger.set_budget(self.compute_budget_from_poly(self.n_agents, self.R, self.a_max, self.discount_factor)[0])
+                self.evaluation_logger.set_budget(self.compute_budget_from_poly(self.n_agents, self.R, self.transmission_radius_bases))
             else:
                 # I have no fucking idea
                 self.reset_world(self.world, self.np_random)
@@ -672,6 +672,8 @@ class Info_relay_env(ParallelEnv):
                 self.evaluation_logger.set_success()
             self.evaluation_logger.add_value(self.timestep, total_reward)
             self.evaluation_logger.add_delivery_time(1)
+
+            self.evaluation_logger.log_trajectory(self.timestep, self.world.agents)
         
         terminations = self.terminate()
         #terminations = {agent.name: False for agent in self.world.agents}
@@ -685,6 +687,18 @@ class Info_relay_env(ParallelEnv):
 
         if self.evaluation_logger is not None and ( any(list(terminations.values())) or any(list(truncations.values())) ):
             if self.scenario_index_counter > 0:
+                # calculating using compute_metrics:
+                value, T_D, D_tot = self.compute_metrics(p_trajectories=self.evaluation_logger.p_trajectories, 
+                                                         phi_trajectories=self.evaluation_logger.phi_trajectories, 
+                                                         c_pos=self.world.agents[0].movement_cost, 
+                                                         c_phi=self.world.agents[0].radar_cost,
+                                                         budget=self.evaluation_logger.budget, 
+                                                         beta=0.99) # discount_factor
+                
+                self.evaluation_logger.set_value(value)
+                self.evaluation_logger.set_movement(D_tot) 
+                self.evaluation_logger.set_delivery_time(T_D)
+
                 print("writing episode to file: ", self.evaluation_logger.episode_index)
                 self.evaluation_logger.write_episode()
             self.scenario_index_counter += 1
@@ -816,7 +830,7 @@ class Info_relay_env(ParallelEnv):
 
     #     return reward 
 
-    def compute_metrics(p_trajectories, phi_trajectories, c_pos, c_phi, budget, beta):
+    def compute_metrics(self, p_trajectories, phi_trajectories, c_pos, c_phi, budget, beta):
         """
         Compute metrics (value, delivery time, and total distance) given agent trajectories.
     

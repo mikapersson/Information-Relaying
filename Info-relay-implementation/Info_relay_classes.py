@@ -30,6 +30,21 @@ class EvaluationLogger:
         self.writer_eval.writerow(["idx", "sucess", "R", "value", "budget", "agent_sum_distance",
                                    "air_distance", "delivery_time", "directed_transmission", "K", "file"])
 
+        # logging trajectories
+        self.p_trajectories = {i: {} for i in range(K)}
+        self.phi_trajectories = {i: {} for i in range(K)}
+        
+    def log_trajectory(self, t, agents):
+        """
+        agents: list of agent objects 
+        """
+        for i, agent in enumerate(agents):
+            pos = np.array(agent.state.p_pos, dtype=float)
+            theta = getattr(agent.state, "theta", None)
+
+            self.p_trajectories[i][t] = pos
+            self.phi_trajectories[i][t] = theta
+
     def write_episode(self):
         self.writer_eval.writerow([self.episode_index,
                                    self.success,
@@ -51,11 +66,17 @@ class EvaluationLogger:
         self.delivery_time = 0
         self.success = False
 
+        self.p_trajectories = {i: {} for i in range(self.K)}
+        self.phi_trajectories = {i: {} for i in range(self.K)}
+
     def update_episode_index(self, index):
         self.episode_index = index
 
     def add_delivery_time(self, time):
         self.delivery_time += time
+
+    def set_delivery_time(self, tot_time):
+        self.delivery_time = tot_time
 
     def set_budget(self, budget):
         self.budget = budget
@@ -68,6 +89,9 @@ class EvaluationLogger:
 
     def add_movement(self, movement):
         self.episode_movement += movement
+    
+    def set_movement(self, tot_movement):
+        self.episode_movement = tot_movement
 
     def add_air_distance(self, sender, receiver):
         distance = np.linalg.norm(sender.state.p_pos - receiver.state.p_pos)
@@ -75,6 +99,9 @@ class EvaluationLogger:
 
     def add_value(self, time_step, reward):
         self.value += reward * 0.99 ** time_step
+
+    def set_value(self, value):
+        self.value = value
 
 class EntityState:  # physical/external base state of all entities
     def __init__(self):
