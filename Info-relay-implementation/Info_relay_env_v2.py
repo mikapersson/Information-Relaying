@@ -793,6 +793,8 @@ class Info_relay_env(ParallelEnv):
     def compute_budget_from_poly(self, K, R, Rcom=1.0):
         """
         Compute budget using polynomial coefficients from a lookup table.
+
+        OBS! Assumes gamma=0.99, sigma=0.2, and Rcom=1.
     
         Args:
             K (int): Number of agents
@@ -806,18 +808,19 @@ class Info_relay_env(ParallelEnv):
             ValueError: If R is outside the valid range [K*Rcom, (K+4)*Rcom]
             KeyError: If K is not found in the lookup table
         """
-        # Hardcoded polynomial coefficients
+
+        # Hardcoded polynomial coefficients (see budget_evaluation_poly.py)
         hardcoded_coeffs = {
-            1: [0.010470585284440757, 0.12729574567799154, 0.235945100165072],
-            2: [0.011895625505199592, 0.13113751673796467, 0.338629134307303],
-            3: [0.013482687230860388, 0.1323680602300149, 0.5744544697422119],
-            4: [0.015254383027451862, 0.1304467097498171, 0.9640146006785912],
-            5: [0.01727552218404182, 0.12398577010534824, 1.5338947826010925],
-            6: [0.019576208532564747, 0.11178377236586168, 2.3144076254631276],
-            7: [0.022130292174085874, 0.09355880636422456, 3.335929933479222],
-            8: [0.02503478832280198, 0.06679187699721652, 4.643037372567654],
-            9: [0.028312262897735762, 0.030016185415284582, 6.281742610035206],
-            10: [0.03201053049026646, -0.018894374746918265, 8.307605857543587]
+        1: [0.008064426708540176, 0.24227644166893686, 0.447558811375325],
+        2: [0.008563631604393761, 0.2630189822526008, 0.5842598858548388],
+        3: [0.00916296576633421, 0.28665157865366997, 0.9336890390584559],
+        4: [0.009798427621887198, 0.3060525869549174, 1.5485362284764004],
+        5: [0.010414558965496229, 0.33280010372979313, 2.382222977668543],
+        6: [0.011373063174744277, 0.3470956191782513, 3.570526510127933],
+        7: [0.011840565900633405, 0.38027890499105743, 4.943145118749329],
+        8: [0.012999363841415444, 0.38982808982575157, 6.8011931110736885],
+        9: [0.013465327379084442, 0.42848574257521205, 8.788865616040736],
+        10: [0.01494447983453105, 0.42915282929532317, 11.451549205015272]
         }
     
         if K not in hardcoded_coeffs:
@@ -863,6 +866,90 @@ class Info_relay_env(ParallelEnv):
     #         reward = (1 - self.discount_factor**T)/(1 - self.discount_factor) * (1/self.discount_factor**T) * (D_tot/(self.n_agents*T))**2
 
     #     return reward 
+
+    def compute_metrics(p_trajectories, phi_trajectories, c_pos, c_phi, budget, beta):
+        """
+        Compute metrics (value, delivery time, and total distance) given agent trajectories.
+    
+        Args:
+            p_trajectories: dict mapping agent index k to dict of positions at each time t
+            phi_trajectories: dict mapping agent index k to list/dict of antenna directions
+            c_pos: cost coefficient for position movement
+            c_phi: cost coefficient for antenna steering
+            budget: allocated budget for the scenario
+    
+        Returns:
+            value: scalar value metric (budget - total cost)
+            T_D: delivery time (time when message reaches receiver)
+            D_tot: total distance traveled by all agents
+        """
+    
+        K = len(p_trajectories)
+    
+        # Compute total distance traveled by all agents
+        D_tot = 0.0
+        for k in range(K):
+            if k in p_trajectories:
+                p_traj_k = p_trajectories[k]
+                for t in range(len(p_traj_k)-1):
+                    if t in p_traj_k and (t + 1) in p_traj_k:
+                        distance_step = np.linalg.norm(p_traj_k[t + 1] - p_traj_k[t])
+                        D_tot += distance_step
+    
+        # Compute antenna steering cost
+        phi_cost_total = 0.0
+        if c_phi > 0:
+            for k in range(K):
+                if k in phi_trajectories:
+                    phi_traj_k = phi_trajectories[k]
+                
+                    # Sum antenna steering costs (only when antenna direction changes)
+                    times_k = list(p_traj_k.keys())
+                    for t in times_k[:-1]:
+                        phi_current = phi_traj_k[t]
+                        phi_next = phi_traj_k[t + 1]
+                        phi_diff = np.abs(phi_next - phi_current) if phi_current is not None and phi_next is not None else 0.0
+                    
+                        # Only count cost if antenna actually moved
+                        if phi_current is not None and phi_next is not None:
+                            if not np.isclose(phi_current, phi_next, atol=1e-6):
+                                phi_cost_total += beta**t * c_phi * phi_diff**2  # Cost per antenna step
+    
+        # Compute delivery time (T_D)
+        # T_D is the time when the message reaches the receiver
+        # This is determined by finding the last time step where any agent has the message
+        T_D = 0
+        for k in range(K):
+            if k in p_trajectories:
+                p_traj_k = p_trajectories[k]
+                T_D = max(T_D, max(p_traj_k.keys()))
+    
+        # Compute total movement cost
+        # Cost = c_pos * sum of all distances traveled
+        position_cost = 0.0
+        for k in range(K):
+            if k in p_trajectories:
+                p_traj_k = p_trajectories[k]
+            
+                # Sum antenna steering costs (only when antenna direction changes)
+                times_k = list(p_traj_k.keys())
+                for t in times_k[:-1]:
+                    p_current = p_traj_k[t]
+                    p_next = p_traj_k[t + 1]
+                    p_diff = np.linalg.norm(p_next - p_current) if p_current is not None and p_next is not None else 0.0
+                
+                    # Only count cost if antenna actually moved
+                    if p_current is not None and p_next is not None:
+                        position_cost += beta**t * c_pos * p_diff**2  # Cost per antenna step
+    
+        # Total cost
+        total_cost = position_cost + phi_cost_total
+    
+        # Compute value metric
+        # Value = budget - total_cost (higher is better)
+        value = (beta**T_D)*budget - total_cost
+    
+        return value, T_D, D_tot
 
     def bound(self, agent):
         """
