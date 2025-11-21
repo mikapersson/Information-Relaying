@@ -170,5 +170,5 @@ if __name__ == "__main__":
             jammer_sigma=jammer_sigma,
             beta=beta,
             seed=seed,
-            save_path=f"Evaluation/Evaluation_states/Data/evaluation_states_K{k}_n{nr_eval}.csv"
+            save_path=f"Evaluation/Evaluation_states/evaluation_states_K{k}_n{nr_eval}.csv"
         )

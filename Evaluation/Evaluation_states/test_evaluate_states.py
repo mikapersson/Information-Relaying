@@ -96,7 +96,7 @@ if __name__ == "__main__":
     alpha = 0.4
 
     # Example usage:
-    csv_path = f"Evaluation_states/Data/evaluation_states_K{K}_n{n_total}.csv"
+    csv_path = f"Evaluation/Evaluation_states/evaluation_states_K{K}_n{n_total}.csv"
     plot_evaluation_states(
         csv_path, K=K, n_show=n_show, alpha=alpha,
         plot_agents=False,
