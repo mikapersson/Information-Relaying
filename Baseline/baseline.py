@@ -11,9 +11,9 @@ import numpy.linalg as la
 parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if parent_dir not in sys.path:
     sys.path.append(parent_dir)
-from communication import communication_range, calculate_sinr_at_receiver
-from compute_metrics_budget import compute_budget_from_poly, compute_metrics
-from reflection import optimal_circle_boundary_point
+from Baseline.communication import communication_range, calculate_sinr_at_receiver
+from Baseline.compute_metrics_budget import compute_budget_from_poly, compute_metrics
+from Baseline.reflection import optimal_circle_boundary_point
 
 
 def one_antenna_step(phi_current, phi_final, phi_resolution):

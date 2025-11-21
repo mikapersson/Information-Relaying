@@ -13,7 +13,7 @@ from PIL import Image
 
 # Add the parent directory to sys.path to import baseline
 sys.path.append(str(Path(__file__).parent.parent))
-from Baseline.baseline import baseline, plot_scenario_with_path_colored, plot_scenario
+from Baseline.baseline import baseline, plot_scenario
 
 from Baseline.communication import communication_range
 
@@ -288,10 +288,11 @@ def get_marl_config_string(method, K, c_pos, c_phi, directed_transmission, jamme
 
     return config_string
 
-def save_evaluation_results(results, eval_result_dir, K, c_pos, c_phi, n, 
+def save_evaluation_results(results, result_dir, K, c_pos, c_phi, n, 
                             directed_transmission=False, jammer_on=False, clustering_on=False, minimize_distance=False):
     """
     Save evaluation results to a CSV file in a structured directory.
+    OBS! Only done for Baseline
     """
     if not results:
         print("No results to save.")
@@ -299,15 +300,17 @@ def save_evaluation_results(results, eval_result_dir, K, c_pos, c_phi, n,
 
     df_results = pd.DataFrame(results)
     # Compose directory and file name
-    conf_string = get_config_string(directed_transmission, jammer_on, c_pos=c_pos, c_phi=c_phi)
-    eval_result_dir = os.path.join(eval_result_dir, conf_string)
-    os.makedirs(eval_result_dir, exist_ok=True)
-    eval_file = f"evaluation_results_K{K}_n{n}_{conf_string}.csv"
-    eval_path = os.path.join(eval_result_dir, eval_file)
+    # Evaluation or testing? Check first string of result_dir
+    result_type = "evaluation" if result_dir.split("/")[0] == "Evaluation" else "test"
+
+    result_dir = os.path.join(result_dir, "Baseline")
+    os.makedirs(result_dir, exist_ok=True)
+    result_file = f"baseline_{result_type}_results_K{K}_cpos{c_pos}_cphi{c_phi}_n{n}_dir{int(bool(directed_transmission))}_jam{int(bool(jammer_on))}.csv"
+    result_path = os.path.join(result_dir, result_file)
     
     # Save to CSV
-    df_results.to_csv(eval_path, index=False)
-    print(f"Saved evaluation results to {eval_path}")
+    df_results.to_csv(result_path, index=False)
+    print(f"Saved {result_type} results to {result_path}")
 
 # Add this function after the plot_histogram function:
 
@@ -1273,7 +1276,7 @@ def generate_baseline_trajectory(k, row, data_dir, c_pos, c_phi, directed_transm
     print(f'Loaded {data_file_path}')
     state = get_state_dict(data, row_idx)
 
-    baseline_result = baseline_result(
+    baseline_result = baseline(
                 state['p_agents'], 
                 state['p_tx'],
                 state['p_recv'],
@@ -1289,10 +1292,11 @@ def generate_baseline_trajectory(k, row, data_dir, c_pos, c_phi, directed_transm
             )
     
     # Convert trajectory dict to csv and save
+    conf_string = get_config_string(directed_transmission, jammer_on, c_pos, c_phi)
     if testing:
-        traj_path = "Testing/Data/Trajectories/Baseline"
+        traj_path = f"Testing/Data/Trajectories/{conf_string}/Baseline"
     else:
-        traj_path = "Evaluation/Trajectories/Baseline"
+        traj_path = f"Evaluation/Trajectories/{conf_string}/Baseline"
     savepath = f"{traj_path}/baseline_K{k}_row{row}_dir{int(directed_transmission)}_jam{int(jammer_on)}_trajectory.csv"
     os.makedirs(os.path.dirname(savepath), exist_ok=True)
     save_trajectory(baseline_result, savepath=savepath, file=data_name, directed_transmission=directed_transmission, jammer_on=jammer_on, file_idx=row_idx)
@@ -1925,9 +1929,11 @@ def animate_trajectory(traj_dir, k, row, directed_transmission, jammer_on, metho
     
     # Save GIF
     if anim_dir:
+        anim_dir = os.path.join(anim_dir, "Trajectories", 
+                                f"dir{int(bool(directed_transmission))}_jam{int(bool(jammer_on))}", f"{method}")
         os.makedirs(anim_dir, exist_ok=True)
-        gif_path = os.path.join(anim_dir, 
-                               f"{method.lower()}_K{k}_row{row}_dir{int(directed_transmission)}_jam{int(jammer_on)}.gif")
+        anim_name = f"{method}_K{k}_row{row}_dir{int(directed_transmission)}_jam{int(jammer_on)}_trajectory.gif"
+        gif_path = os.path.join(anim_dir, anim_name)
         
         print(f"\nSaving animation to {gif_path}...")
         pil_frames[0].save(gif_path, save_all=True, append_images=pil_frames[1:], 
@@ -1941,8 +1947,8 @@ def animate_trajectory(traj_dir, k, row, directed_transmission, jammer_on, metho
 
 
 def main():
-    # Choose evaluation mode
-    # (USE) 0-generate baseline result data  
+    # CHOOSE EVALUATION/TESTING MODE
+    # (USE) 0-generate baseline result data for one scenario
     # (USE) 1-evaluate single policy  
     # 2-compare baseline policies 
     # 3-examine specific instances 
@@ -1952,7 +1958,7 @@ def main():
     # 7-compare multiple policies simultaneously
     # 8-save trajectory from specific scenario
     # (USE) 9-evaluate specified methods on a specific scenario  
-    # (USE) 10-compare baseline and MADDPG or MAPPO policy  
+    # 10-compare baseline and MADDPG or MAPPO policy  
     # 11-violin plot of value, delivery time, and total distance (maybe use SMAPE) vs K
     # (USE)12-generate trajectory data from the baseline (runs Dijkstra)
     # (USE)13-plot trajectory (takes trajectory file)
@@ -1965,11 +1971,12 @@ def main():
     # 20-compare baseline values for two various K just to see how much the value distribution differs
     # 21-make a 2x2 (4x1?) plot for baseline comparing trajectory between all scenarios for a specific game instance
     # 22-make a 2x2 animation for baseline for specific scenario
+    # (USE) 23-generate baseline result data for all scenarios
 
     
     testing = False  # are we running on test data? (FINAL DATA) False -> Evaluation data
 
-    eval_mode = 14
+    eval_mode = 22
 
     eval_K = [5] 
     value_remove_below = -10  
@@ -1986,24 +1993,27 @@ def main():
     dist_remove_below = 0  
     dist_remove_above = 40 
     """
-    
-    present_mode = "violin"  # hist ; violin
-    compare_mode = "violin"  # hist ; scatter ; heatmap; violin
 
     # Configuration
-    K_start = 1
-    K_end = 10
+    K_start = 5
+    K_end = 5
     K = range(K_start, K_end+1)
-    row_start = 1  # +1 of row_idx  # K=20 -> 1797
+    row_start = 1  
     row_end = 10000  # Specify the range of rows to evaluate
 
     c_pos = 0.5 #[0.5, 1]  # motion cost parameter
     c_phi = 0.1  # antenna cost parameter
     
-    directed_transmission = True 
-    jammer_on = False
+    directed_transmission = False 
+    jammer_on = True
     clustering_on = True 
     minimize_distance = False  # minimize total movement instead of fasted delivery time
+    
+    method = "Baseline"  # Baseline or MADDPG or MAPPO
+    
+    
+    present_mode = "violin"  # hist ; violin
+    compare_mode = "violin"  # hist ; scatter ; heatmap; violin
 
     # Configuration string for saving/loading
     conf_string = get_config_string(directed_transmission, jammer_on, c_pos=c_pos, c_phi=c_phi)
@@ -2020,32 +2030,29 @@ def main():
         eval_folder3 = get_config_string(directed_transmission=True, jammer_on=False, c_pos=c_pos, c_phi=c_phi)
 
     # Compare baseline with MARL
-    baseline_eval_folder = get_config_string(directed_transmission=directed_transmission, jammer_on=jammer_on, c_pos=c_pos, c_phi=c_phi)
-    marl_eval_folder = "Evaluation/MARL_evaluations"
     marl_alg = "MAPPO"  # MADDPG or MAPPO
-    marl_file = get_marl_config_string(marl_alg, K_start, c_pos, c_phi, directed_transmission, jammer_on)
 
-    # Loading initial scenarios to evaluate/test on
+    # Loading initial scenarios to evaluate/test on & saving results 
     if testing:
-        data_dir = "Testing/Data/Test_states"
+        data_dir = "Testing/Test_states"
         data_files = ["test_states_K" + str(k) + "_n10000.csv" for k in K]  # Specify your data files
+        result_dir = f"Testing/Testing_results/{conf_string}"
+        traj_dir = f"Testing/Trajectories/{conf_string}/{method}"
     else:
-        data_dir = "Evaluation/Evaluation_states/Data"
+        data_dir = "Evaluation/Evaluation_states"
         data_files = ["evaluation_states_K" + str(k) + "_n10000.csv" for k in K]  # Specify your data files
+        result_dir = f"Evaluation/Evaluation_results/{conf_string}"
+        traj_dir = f"Evaluation/Trajectories/{conf_string}/{method}"
+    
+    anim_dir = f"Media/Animations"
+
     data_file_paths = [data_dir + "/" + data_file for data_file in data_files]
     rows = range(row_start-1, row_end)  # Specify rows to evaluate
-    
-    # Saving stuff
-    if testing:
-        plot_dir = f"Testing/Plots/{conf_string}"
-        result_dir = "Testing/Data/Results"
-    else:  # evaluating
-        plot_dir = f"Plots/Evaluation_plots/{conf_string}"
-        result_dir = "Evaluation/Evaluation_results"
-    os.makedirs(plot_dir, exist_ok=True)
 
+    # Evaluate/Test according to eval_mode
     if eval_mode == 0:  # Generate evaluation data
         eval_string = "Testing" if testing else "Evaluation"
+                
         for i, k in enumerate(K):
             print(f"\n{eval_string} baseline with K={k}, directed_transmission={directed_transmission}, jammer_on={jammer_on}, clustering_on={clustering_on}, minimize_distance={minimize_distance}")
             data_file_path = data_file_paths[i]
@@ -2433,19 +2440,9 @@ def main():
     elif eval_mode == 14:  # Plot trajectory (takes trajectory file)
 
         k = 1
-        row = 15
+        row = 1
         #directed_transmission = False
-        method = "Baseline"  # Baseline or MADDPG or MAPPO
         force_gen_traj = True
-
-        if testing:
-            traj_dir = f"Testing/Data/Trajectories/{method}"
-            data_dir = "Testing/Data/Test_states"
-            anim_dir = f"Testing/Animation/{method}/Trajectories/{conf_string}"
-        else:
-            traj_dir = f"Evaluation/Trajectories/{method}"
-            data_dir = "Evaluation/Evaluation_states/Data"
-            anim_dir = f"Evaluation/Animation/{method}/Trajectories/{conf_string}"
 
         # Construct trajectory file name to check if it exists
         traj_filename = f"{method.lower()}_K{k}_row{row}_dir{int(directed_transmission)}_jam{int(jammer_on)}_trajectory.csv"
@@ -2453,7 +2450,6 @@ def main():
         
         # If trajectory doesn't exist and method is Baseline, generate it
         if not os.path.exists(traj_file_path) or force_gen_traj:
-            print(f"Trajectory file not found: {traj_file_path}")
             if method.lower() == "baseline":
                 print(f"Generating baseline trajectory...")
                 generate_baseline_trajectory(k, row, data_dir, c_pos, c_phi, 
@@ -2534,6 +2530,10 @@ def main():
         Load results for selected methods across all K values.
         Compute pairwise differences and plot heatmaps for all K in one figure per comparison.
         """
+
+        # File handling
+        plot_dir = f"Media/Figures/Heatmaps/{conf_string}"
+        load_string = "test" if testing else "evaluation"
         
         # ===== SELECT WHICH METHODS TO COMPARE =====
         methods_to_compare = ["baseline",  "MAPPO"]  # Choose subset: e.g., ["baseline", "MADDPG"]
@@ -2543,16 +2543,6 @@ def main():
         # methods_to_compare = ["MADDPG", "MAPPO"]
         # methods_to_compare = ["baseline"]
         
-        # Determine which result folders to use
-        if testing:
-            marl_eval_folder = "Testing/Data/Results"
-            baseline_result_folder = "Testing/Data/Results"
-        else:
-            marl_eval_folder = "Evaluation/MARL_evaluations"
-            baseline_result_folder = "Evaluation/Evaluation_results"
-        
-        baseline_eval_folder = get_config_string(directed_transmission, jammer_on, c_pos=c_pos, c_phi=c_phi)
-        
         # Load results for selected methods only
         results_dicts = {}
         
@@ -2560,42 +2550,39 @@ def main():
             print("Loading baseline results...")
             baseline_results_dict = {}
             for k in eval_K:
-                eval_data_file_path = os.path.join(baseline_result_folder, baseline_eval_folder, 
-                                                f"evaluation_results_K{k}_n{row_end}_{baseline_eval_folder}.csv")
-                if os.path.exists(eval_data_file_path):
-                    data = pd.read_csv(eval_data_file_path)
+                result_data_file_path = os.path.join(result_dir, "Baseline", f"baseline_{load_string}_results_K{k}_cpos{c_pos}_cphi{c_phi}_n{row_end}_dir{int(bool(directed_transmission))}_jam{int(bool(jammer_on))}.csv")
+                if os.path.exists(result_data_file_path):
+                    data = pd.read_csv(result_data_file_path)
                     baseline_results_dict[k] = data.to_dict(orient='records')
                     print(f"  Loaded baseline K={k}: {len(baseline_results_dict[k])} entries")
                 else:
-                    print(f"  Warning: Baseline file not found for K={k}: {eval_data_file_path}")
+                    print(f"  Warning: Baseline file not found for K={k}: {result_data_file_path}")
             results_dicts["baseline"] = baseline_results_dict
         
         if "MADDPG" in methods_to_compare:
             print("Loading MADDPG results...")
             maddpg_results_dict = {}
             for k in eval_K:
-                maddpg_file = get_marl_config_string("MADDPG", k, c_pos, c_phi, directed_transmission, jammer_on, testing=testing)
-                eval_data_file_path = os.path.join(marl_eval_folder, "MADDPG", f"{maddpg_file}.csv")
-                if os.path.exists(eval_data_file_path):
-                    data = pd.read_csv(eval_data_file_path)
+                result_data_file_path = os.path.join(result_dir, "MADDPG", f"MADDPG_{load_string}_results_K{k}_cpos{c_pos}_cphi{c_phi}_n{row_end}_dir{int(bool(directed_transmission))}_jam{int(bool(jammer_on))}.csv")
+                if os.path.exists(result_data_file_path):
+                    data = pd.read_csv(result_data_file_path)
                     maddpg_results_dict[k] = data.to_dict(orient='records')
                     print(f"  Loaded MADDPG K={k}: {len(maddpg_results_dict[k])} entries")
                 else:
-                    print(f"  Warning: MADDPG file not found for K={k}: {eval_data_file_path}")
+                    print(f"  Warning: MADDPG file not found for K={k}: {result_data_file_path}")
             results_dicts["MADDPG"] = maddpg_results_dict
         
         if "MAPPO" in methods_to_compare:
             print("Loading MAPPO results...")
             mappo_results_dict = {}
             for k in eval_K:
-                mappo_file = get_marl_config_string("MAPPO", k, c_pos, c_phi, directed_transmission, jammer_on, testing=testing)
-                eval_data_file_path = os.path.join(marl_eval_folder, "MAPPO", f"{mappo_file}.csv")
-                if os.path.exists(eval_data_file_path):
-                    data = pd.read_csv(eval_data_file_path)
+                result_data_file_path = os.path.join(result_dir, "MAPPO", f"MAPPO_{load_string}_results_K{k}_cpos{c_pos}_cphi{c_phi}_n{row_end}_dir{int(bool(directed_transmission))}_jam{int(bool(jammer_on))}.csv")
+                if os.path.exists(result_data_file_path):
+                    data = pd.read_csv(result_data_file_path)
                     mappo_results_dict[k] = data.to_dict(orient='records')
                     print(f"  Loaded MAPPO K={k}: {len(mappo_results_dict[k])} entries")
                 else:
-                    print(f"  Warning: MAPPO file not found for K={k}: {eval_data_file_path}")
+                    print(f"  Warning: MAPPO file not found for K={k}: {result_data_file_path}")
             results_dicts["MAPPO"] = mappo_results_dict
         
         # Filter all results using value, delivery_time, and agent_sum_distance thresholds
@@ -2632,16 +2619,18 @@ def main():
             comparisons.append((method1, method2, results_dicts[method1], results_dicts[method2]))
         
         if comparisons:
-            eval_plot_dir = os.path.join(marl_eval_folder, "Compare", "All_heatmaps")
-            os.makedirs(eval_plot_dir, exist_ok=True)
+            os.makedirs(plot_dir, exist_ok=True)
             
             # Create a descriptive filename with methods and scenario
             k_string = "K" + "_".join(map(str, eval_K))
-            methods_str = "_vs_".join(sorted(results_dicts.keys()))
+            if len(methods_to_compare) == 3:
+                methods_str = "all"
+            else:
+                methods_str = "_vs_".join(sorted(results_dicts.keys()))
             scenario_str = f"{k_string}_dir{int(directed_transmission)}_jam{int(jammer_on)}"
             
             # Pass this info to the plotting function so it can use it in the saved filename
-            plot_comparison_heatmap_all(comparisons, eval_K, plot_dir=eval_plot_dir, 
+            plot_comparison_heatmap_all(comparisons, eval_K, plot_dir=plot_dir, 
                                     methods_str=methods_str, scenario_str=scenario_str)
         else:
             print("Error: Need at least 2 methods to compare!")
@@ -3071,7 +3060,7 @@ def main():
         - (1,0): directed=False, jammer=True
         - (1,1): directed=True, jammer=True
         """
-        k = 20
+        k = 1
         row = 1
         method = "Baseline"
         force_gen_traj = True
@@ -3083,14 +3072,8 @@ def main():
         sns.set_style("whitegrid")
         sns.set_palette("husl")
         
-        if testing:
-            traj_dir = f"Testing/Data/Trajectories/{method}"
-            data_dir = "Testing/Data/Test_states"
-            anim_dir = f"Testing/Animation/{method}/Trajectories/Comparison_all_scenarios"
-        else:
-            traj_dir = f"Evaluation/Trajectories/{method}"
-            data_dir = "Evaluation/Evaluation_states/Data"
-            anim_dir = f"Evaluation/Animation/{method}/Trajectories/Comparison_all_scenarios"
+        anim_dir = os.path.join(anim_dir, "Trajectories/Baseline_all_scenarios")
+        os.makedirs(anim_dir, exist_ok=True)
         
         # Define all scenario combinations
         scenarios = [
@@ -3108,10 +3091,16 @@ def main():
         # Load all trajectories and precompute agent statuses
         all_traj_data = {}
         all_active_agents = {}
+
+        if testing:
+            traj_dir = f"Testing/Data/Trajectories"
+        else:
+            traj_dir = f"Evaluation/Trajectories"
         
         for directed_transmission, jammer_on, scenario_name in scenarios:
+            conf_string_temp = get_config_string(directed_transmission, jammer_on, c_pos, c_phi)
             traj_filename = f"{method.lower()}_K{k}_row{row}_dir{int(directed_transmission)}_jam{int(jammer_on)}_trajectory.csv"
-            traj_file_path = os.path.join(traj_dir, traj_filename)
+            traj_file_path = os.path.join(traj_dir, conf_string_temp, f"{method}", traj_filename)
             
             if not os.path.exists(traj_file_path) or force_gen_traj:
                 print(f"Generating trajectory for scenario {scenario_name}...")
@@ -3390,6 +3379,41 @@ def main():
             print(f"  Duration per frame: {dur_frame}ms")
         else:
             print("Animation frames generated (not saved)")
+
+    if eval_mode == 23:  # Generate evaluation data
+        eval_string = "Testing" if testing else "Evaluation"
+        
+        # Run all four combinations of directed_transmission and jammer_on
+        for directed_tx in [False, True]:
+            for jammer in [False, True]:
+                print(f"\n{'='*80}")
+                print(f"Running configuration: directed_transmission={directed_tx}, jammer_on={jammer}")
+                print(f"{'='*80}")
+                
+                
+                conf_string = get_config_string(directed_tx, jammer, c_pos=c_pos, c_phi=c_phi)
+                if testing:
+                    result_dir = f"Testing/Testing_results/{conf_string}"
+                else:
+                    result_dir = f"Evaluation/Evaluation_results/{conf_string}"
+                
+                for i, k in enumerate(K):
+                    print(f"\n{eval_string} baseline with K={k}, directed_transmission={directed_tx}, jammer_on={jammer}, clustering_on={clustering_on}, minimize_distance={minimize_distance}")
+                    data_file_path = data_file_paths[i]
+
+                    # Evaluation results
+                    result = evaluate_baseline(data_file_path, c_pos, c_phi, rows, directed_transmission=directed_tx, jammer_on=jammer, clustering_on=clustering_on, minimize_distance=minimize_distance)
+
+                    # Save evaluation results
+                    if result_dir:
+                        n = rows[-1]+1
+                        save_evaluation_results(
+                            result, result_dir, k, c_pos, c_phi, n,
+                            directed_transmission=directed_tx,
+                            jammer_on=jammer,
+                            clustering_on=clustering_on,
+                            minimize_distance=minimize_distance
+                        )
 
 if __name__ == "__main__":
     main()

@@ -1,5 +1,0 @@
-idx,t,R,directed_transmission,jammer_on,agent1_x,agent1_y,agent1_phi,agent1_has_message,file_idx,file
-1,0,1.5072589934293386,False,False,1.1504356399695914,-0.7085367752992118,,False,40,evaluation_states_K1_n10000.csv
-2,1,1.5072589934293386,False,False,1.0009517444431826,-0.6164717925955765,,False,40,evaluation_states_K1_n10000.csv
-3,2,1.5072589934293386,False,False,0.8514678489167736,-0.5244068098919412,,True,40,evaluation_states_K1_n10000.csv
-4,3,1.5072589934293386,False,False,0.8514678489167736,-0.5244068098919412,,True,40,evaluation_states_K1_n10000.csv

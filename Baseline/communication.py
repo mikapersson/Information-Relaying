@@ -76,43 +76,43 @@ def communication_range(theta, phi, C_dir=1.0, SINR_threshold=1.0, jammer_pos=No
         
         return best_R
 
-def calculate_sinr_at_receiver(phi, C_dir=1.0, jammer_pos=None):
+
+def calculate_sinr_at_receiver(p_tx, p_rec, phi=None, jammer_pos=None):
     """Calculate SINR at receiver position for given phi using the provided equation"""
-    p_tx = np.array([0, 0])  # Transmitter at origin
-    p_rec_angle = np.pi/4  # Receiver at angle pi/4
-    p_rec_distance = np.sqrt(2)
-    p_rec = np.array([p_rec_distance * np.cos(p_rec_angle), p_rec_distance * np.sin(p_rec_angle)])
-    
-    # Calculate theta_rec relative to antenna boresight
-    theta_rec = np.mod(p_rec_angle - phi + np.pi, 2*np.pi) - np.pi
-    
-    # Check if theta_rec is within [-pi/2, pi/2]
-    if abs(theta_rec) > np.pi/2:
-        return 0.0, theta_rec
-    
-    # Calculate antenna gain using shared function
-    antenna_gain_value = antenna_gain(theta_rec, C_dir)
-    
-    # Set jammer coefficient
-    C_jam = 3.0 if jammer_pos is not None else 0.0
-    
+
+    if phi:
+        # Calculate theta_rec relative to antenna boresight
+        angle_to_receiver = np.arctan2(p_rec[1] - p_tx[1], p_rec[0] - p_tx[0])
+        theta_rec = np.mod(angle_to_receiver - phi + np.pi, 2*np.pi) - np.pi
+        
+        # Check if theta_rec is within [-pi/2, pi/2]
+        if abs(theta_rec) > np.pi/2:
+            return 0.0, theta_rec
+        
+        # Calculate antenna gain
+        antenna_gain_value = antenna_gain(theta_rec, C_dir=1.0)
+    else:
+        antenna_gain_value = 1.0
+        theta_rec = None
+        
     # Calculate distances
     dist_tr_squared = np.linalg.norm(p_rec - p_tx)**2  # ||p_r - p_t||^2
     
-    if C_jam > 0:
+    if jammer_pos is not None:
+        C_jam = 3.0
         dist_jr_squared = np.linalg.norm(p_rec - jammer_pos)**2  # ||p_r - p_j||^2
-    else:
-        dist_jr_squared = 1.0  # Dummy value when no jammer
-    
-    # SINR calculation according to equation
-    if C_jam > 0:
         denominator = dist_tr_squared * (1 + C_jam / dist_jr_squared)
     else:
-        denominator = dist_tr_squared  # When C_jam = 0, the (1 + C_jam * ...) term becomes 1
+        denominator = dist_tr_squared  
     
-    sinr = antenna_gain_value / denominator
-    
+    epsilon = 1e-10
+    denominator_safe = max(denominator, epsilon)
+    sinr = antenna_gain_value / denominator_safe
+
     return sinr, theta_rec
+
+
+
 
 def calculate_max_range(phi, C_dir=1.0, SINR_threshold=1.0, jammer_pos=None):
     """Calculate maximum communication range for given phi"""
