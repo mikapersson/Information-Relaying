@@ -3,7 +3,7 @@
 
 Simulator for testing out the information relaying environemnt and training the agents using MARL. 
 
-![demo gif](Information-Relaying\Media\Animation\Baseline\Trajectories\Comparison_all_scenariosComparison_all_scenarios/baseline_K5_row1_all_scenarios.gif)
+![demo gif](Information-Relaying/Media/Animation/Baseline/Trajectories/Comparison_all_scenarios/Comparison_all_scenarios/baseline_K5_row1_all_scenarios.gif)
 
 
 ## Running the simulator with BenchMARL (for training)
