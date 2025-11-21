@@ -1976,7 +1976,7 @@ def main():
     
     testing = False  # are we running on test data? (FINAL DATA) False -> Evaluation data
 
-    eval_mode = 22
+    eval_mode = 23
 
     eval_K = [5] 
     value_remove_below = -10  
@@ -1995,8 +1995,8 @@ def main():
     """
 
     # Configuration
-    K_start = 5
-    K_end = 5
+    K_start = 1
+    K_end = 10
     K = range(K_start, K_end+1)
     row_start = 1  
     row_end = 10000  # Specify the range of rows to evaluate
@@ -2070,6 +2070,7 @@ def main():
                     clustering_on=clustering_on,
                     minimize_distance=minimize_distance
                 )
+    
     elif eval_mode == 1:  # Evaluate single policy
         # Read evaluation results
         if present_mode == "hist":
@@ -2091,6 +2092,7 @@ def main():
                 results_dict[k] = results
 
             plot_violin_plots(results_dict, plot_dir=plot_dir, c_pos=c_pos, c_phi=c_phi)
+    
     elif eval_mode == 2:  # Compare policies
         for i, k in enumerate(K):
             # For every K, read both evaluation results and compute difference in performance measures and plot diff histograms
