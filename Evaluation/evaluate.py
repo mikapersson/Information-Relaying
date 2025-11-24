@@ -1239,12 +1239,12 @@ def plot_comparison_heatmap_all(comparisons, eval_K, plot_dir=None, methods_str=
             
             # Move labels inside the frame (bottom-left corner positioning)
                         # Move labels to middle of corresponding axes
-            ax.text(0.5, 0.02, f'{method1}', fontsize=fontsize, 
+            ax.text(0.5, 0.01, f'{method1}', fontsize=fontsize, 
                    transform=ax.transAxes, va='bottom', ha='center',
-                   bbox=dict(boxstyle='round,pad=0.3', facecolor='white', alpha=0.7, edgecolor='none'))
-            ax.text(0.02, 0.5, f'{method2}', fontsize=fontsize, 
+                   bbox=dict(boxstyle='round,pad=0.1', facecolor='white', alpha=0.7, edgecolor='none'))
+            ax.text(0.01, 0.5, f'{method2}', fontsize=fontsize, 
                    transform=ax.transAxes, va='center', ha='left', rotation=90,
-                   bbox=dict(boxstyle='round,pad=0.3', facecolor='white', alpha=0.7, edgecolor='none'))
+                   bbox=dict(boxstyle='round,pad=0.1', facecolor='white', alpha=0.7, edgecolor='none'))
 
 
     plt.subplots_adjust(wspace=0.1, hspace=0.25, left=0.08, right=0.8, top=0.88, bottom=0.12)
@@ -1976,7 +1976,7 @@ def main():
     
     testing = False  # are we running on test data? (FINAL DATA) False -> Evaluation data
 
-    eval_mode = 23
+    eval_mode = 20
 
     eval_K = [5] 
     value_remove_below = -10  
@@ -1995,8 +1995,8 @@ def main():
     """
 
     # Configuration
-    K_start = 1
-    K_end = 10
+    K_start = 20
+    K_end = 20
     K = range(K_start, K_end+1)
     row_start = 1  
     row_end = 10000  # Specify the range of rows to evaluate
@@ -2005,7 +2005,7 @@ def main():
     c_phi = 0.1  # antenna cost parameter
     
     directed_transmission = False 
-    jammer_on = True
+    jammer_on = False
     clustering_on = True 
     minimize_distance = False  # minimize total movement instead of fasted delivery time
     
@@ -2044,6 +2044,7 @@ def main():
         result_dir = f"Evaluation/Evaluation_results/{conf_string}"
         traj_dir = f"Evaluation/Trajectories/{conf_string}/{method}"
     
+    plot_dir = "Media/Figures"
     anim_dir = f"Media/Animations"
 
     data_file_paths = [data_dir + "/" + data_file for data_file in data_files]
@@ -2660,7 +2661,7 @@ def main():
         # Load evaluation results for all K values
         results_dict = {}
         for k in K_compare_20:
-            eval_data_file_path = os.path.join(result_dir, conf_string, f"evaluation_results_K{k}_n{row_end}_{conf_string}.csv")
+            eval_data_file_path = os.path.join(result_dir, "Baseline", f"baseline_evaluation_results_K{k}_cpos{c_pos}_cphi{c_phi}_n{row_end}_dir{int(bool(directed_transmission))}_jam{int(bool(jammer_on))}.csv")
             
             if not os.path.exists(eval_data_file_path):
                 print(f"Warning: File not found: {eval_data_file_path}")
@@ -2696,6 +2697,9 @@ def main():
                 median_val = np.median(values)
                 std_val = np.std(values)
                 
+                # Set x-axis to start at 0
+                ax.set_xlim(left=0)
+                
                 ax.grid(True, alpha=0.3, linestyle='--')
                 ax.legend([f'$K$={k}'], loc='upper left', fontsize=25)
 
@@ -2723,10 +2727,11 @@ def main():
         plt.tight_layout(rect=[0, 0, 1, 0.94])
         
         # Save plot
+        plot_dir = os.path.join(plot_dir, "Histograms", "Baseline")
         if plot_dir:
             os.makedirs(plot_dir, exist_ok=True)
             k_str = "_".join(str(k) for k in sorted(results_dict.keys()))
-            plot_path = os.path.join(plot_dir, f'comparison_K{k_str}_values.pdf')
+            plot_path = os.path.join(plot_dir, f'values_K{k_str}_values.pdf')
             plt.savefig(plot_path, format='pdf', dpi=300, bbox_inches='tight',
                     facecolor='white', edgecolor='none', transparent=False)
             print(f"Saved comparison plot to {plot_path}")
