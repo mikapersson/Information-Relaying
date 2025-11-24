@@ -314,7 +314,7 @@ def save_evaluation_results(results, result_dir, K, c_pos, c_phi, n,
 
 # Add this function after the plot_histogram function:
 
-def plot_comparison_histograms(differences, method1, method2, plot_dir=None, k=None):
+def plot_comparison_histograms(differences, method1, method2, plot_dir=None, k=None, extra_string=""):
     """
     Plot four histograms in a 2x2 layout showing differences between two configurations:
     1) value_diff, 2) delivery_time_diff, 3) agent_sum_distance_diff, 4) message_air_distance_diff
@@ -324,14 +324,14 @@ def plot_comparison_histograms(differences, method1, method2, plot_dir=None, k=N
         #('delivery_time_diff', 'Delivery Time Difference', fr'$T_{{\mathrm{{del, {method2}}}}}/T_{{\mathrm{{del, {method1}}}}}$ %'),
         ('delivery_time_diff', 'Delivery Time Ratio', fr'$T_{{\mathrm{{del}}}}$ %'),
         ('agent_sum_distance_diff', 'Agent Sum Distance Difference', r'$\Delta D_{\mathrm{tot}}$'),
-        ('message_air_distance_diff', 'Message Air Distance Ratio', fr'$D_{{\mathrm{{air}}}}$ %')
+        #('message_air_distance_diff', 'Message Air Distance Ratio', fr'$D_{{\mathrm{{air}}}}$ %')
     ]
     
     plt.figure(figsize=(12, 10))
     
     for i, (key, title, xlabel) in enumerate(metrics):
         values = [d[key] for d in differences if key in d]
-        plt.subplot(2, 2, i+1)
+        plt.subplot(3, 1, i+1)
         
         if values:
             plt.hist(values, bins=50, alpha=0.7, edgecolor='black', density=True)
@@ -359,7 +359,7 @@ def plot_comparison_histograms(differences, method1, method2, plot_dir=None, k=N
 
     if plot_dir:
         os.makedirs(plot_dir, exist_ok=True)
-        plot_path = os.path.join(plot_dir, f'comparison_histograms_K{k}_{method1}_vs_{method2}.pdf')
+        plot_path = os.path.join(plot_dir, f'comparison_histograms_K{k}_{method1}_vs_{method2}_{extra_string}.pdf')
         plt.savefig(plot_path, format='pdf', dpi=300, bbox_inches='tight', 
                     facecolor='white', edgecolor='none', transparent=False)
         print(f"Saved comparison histogram to {plot_path}")
@@ -1056,16 +1056,13 @@ def plot_violin_plots(results_input, plot_dir=None, c_pos=0, c_phi=0, directed_t
         plt.show()
 
 
-def plot_comparison_heatmap_all(comparisons, eval_K, plot_dir=None, methods_str="", scenario_str=""):
+def plot_comparison_heatmap_all(comparisons, eval_K, plot_dir=None, methods_str="", scenario_str="", keep_sup_title=False):
     """
     Plot a grid of comparison heatmaps.
     Rows: Different method comparisons
     Columns: metrics (value, delivery_time, agent_sum_distance)
     All comparisons use the same axis limits per metric.
     """
-    
-    import matplotlib.pyplot as plt
-    import numpy as np
 
     # Set Computer Modern font for LaTeX compatibility
     plt.rcParams['font.family'] = 'serif'
@@ -1248,7 +1245,8 @@ def plot_comparison_heatmap_all(comparisons, eval_K, plot_dir=None, methods_str=
 
 
     plt.subplots_adjust(wspace=0.1, hspace=0.25, left=0.08, right=0.8, top=0.88, bottom=0.12)
-
+    if keep_sup_title:
+        plt.suptitle(scenario_str, fontsize=25, fontweight='bold')
 
     if plot_dir is not None:
         os.makedirs(plot_dir, exist_ok=True)
@@ -1972,13 +1970,15 @@ def main():
     # 21-make a 2x2 (4x1?) plot for baseline comparing trajectory between all scenarios for a specific game instance
     # 22-make a 2x2 animation for baseline for specific scenario
     # (USE) 23-generate baseline result data for all scenarios
+    # (USE) 24-compare two specific evaluation files
 
     
     testing = False  # are we running on test data? (FINAL DATA) False -> Evaluation data
 
-    eval_mode = 20
+    eval_mode = 16
 
     eval_K = [5] 
+    """
     value_remove_below = -10  
     value_remove_above = 20
     time_remove_below = -0  
@@ -1986,17 +1986,16 @@ def main():
     dist_remove_below = 0  
     dist_remove_above = 100 
     """
-    value_remove_below = 0  
-    value_remove_above = 4 
+    value_remove_below = -3  
+    value_remove_above = 5
     time_remove_below = -0  
     time_remove_above = 65 
     dist_remove_below = 0  
     dist_remove_above = 40 
-    """
 
     # Configuration
-    K_start = 20
-    K_end = 20
+    K_start = 1
+    K_end = 10
     K = range(K_start, K_end+1)
     row_start = 1  
     row_end = 10000  # Specify the range of rows to evaluate
@@ -2005,12 +2004,11 @@ def main():
     c_phi = 0.1  # antenna cost parameter
     
     directed_transmission = False 
-    jammer_on = False
+    jammer_on = True
     clustering_on = True 
     minimize_distance = False  # minimize total movement instead of fasted delivery time
     
     method = "Baseline"  # Baseline or MADDPG or MAPPO
-    
     
     present_mode = "violin"  # hist ; violin
     compare_mode = "violin"  # hist ; scatter ; heatmap; violin
@@ -2537,6 +2535,8 @@ def main():
         # File handling
         plot_dir = f"Media/Figures/Heatmaps/{conf_string}"
         load_string = "test" if testing else "evaluation"
+        extra_string = "Noisy_"  # "" if nothing extra
+        keep_sup_title = True
         
         # ===== SELECT WHICH METHODS TO COMPARE =====
         methods_to_compare = ["baseline",  "MAPPO"]  # Choose subset: e.g., ["baseline", "MADDPG"]
@@ -2579,7 +2579,7 @@ def main():
             print("Loading MAPPO results...")
             mappo_results_dict = {}
             for k in eval_K:
-                result_data_file_path = os.path.join(result_dir, "MAPPO", f"MAPPO_{load_string}_results_K{k}_cpos{c_pos}_cphi{c_phi}_n{row_end}_dir{int(bool(directed_transmission))}_jam{int(bool(jammer_on))}.csv")
+                result_data_file_path = os.path.join(result_dir, "MAPPO", f"{extra_string}MAPPO_{load_string}_results_K{k}_cpos{c_pos}_cphi{c_phi}_n{row_end}_dir{int(bool(directed_transmission))}_jam{int(bool(jammer_on))}.csv")
                 if os.path.exists(result_data_file_path):
                     data = pd.read_csv(result_data_file_path)
                     mappo_results_dict[k] = data.to_dict(orient='records')
@@ -2634,7 +2634,7 @@ def main():
             
             # Pass this info to the plotting function so it can use it in the saved filename
             plot_comparison_heatmap_all(comparisons, eval_K, plot_dir=plot_dir, 
-                                    methods_str=methods_str, scenario_str=scenario_str)
+                                    methods_str=methods_str, scenario_str=scenario_str, keep_sup_title=keep_sup_title)
         else:
             print("Error: Need at least 2 methods to compare!")
     
@@ -3421,6 +3421,102 @@ def main():
                             clustering_on=clustering_on,
                             minimize_distance=minimize_distance
                         )
+    
+    elif eval_mode == 24:  # Compare two specific evaluation files
+        """
+        Compare two specific evaluation result files.
+        Specify the full file paths and comparison mode.
+        """
+        # Specify the two files to compare
+        k = 5  
+        
+        # Method names for labels  (Baseline, MADDPG, MAPPO)
+        method1 = "MAPPO"
+        method2 = "MAPPO"
+        compare_mode = "hist"
+        
+        # File 1 - specify the full path
+        #eval_file1 = os.path.join(result_dir, "Baseline", f"baseline_evaluation_results_K{k}_cpos{c_pos}_cphi{c_phi}_n{row_end}_dir{int(bool(directed_transmission))}_jam{int(bool(jammer_on))}.csv")
+        eval_file1_name = f"MAPPO_evaluation_results_K{k}_cpos{c_pos}_cphi{c_phi}_n{row_end}_dir{int(bool(directed_transmission))}_jam{int(bool(jammer_on))}.csv"
+        eval_file1 = os.path.join(result_dir, f"{method1}", f"{eval_file1_name}")
+
+        # File 2 - specify the full path (example: MAPPO results)
+        #eval_file2 = os.path.join(result_dir, "MAPPO", f"Noisy_MAPPO_evaluation_results_K{k}_cpos{c_pos}_cphi{c_phi}_n{row_end}_dir{int(bool(directed_transmission))}_jam{int(bool(jammer_on))}.csv")
+        eval_file2_name = f"Noisy_MAPPO_evaluation_results_K{k}_cpos{c_pos}_cphi{c_phi}_n{row_end}_dir{int(bool(directed_transmission))}_jam{int(bool(jammer_on))}.csv"
+        eval_file2 = os.path.join(result_dir, f"{method2}", f"{eval_file2_name}")
+
+        
+        # Load the files
+        if not os.path.exists(eval_file1):
+            print(f"Error: File 1 not found: {eval_file1}")
+            return
+        if not os.path.exists(eval_file2):
+            print(f"Error: File 2 not found: {eval_file2}")
+            return
+        
+        print(f"Loading file 1: {eval_file1}")
+        data1 = pd.read_csv(eval_file1)
+        results1 = data1.to_dict(orient='records')
+        print(f"  Loaded {len(results1)} entries")
+        
+        print(f"Loading file 2: {eval_file2}")
+        data2 = pd.read_csv(eval_file2)
+        results2 = data2.to_dict(orient='records')
+        print(f"  Loaded {len(results2)} entries")
+        
+        # Check if lengths match
+        if len(results1) != len(results2):
+            print(f"Warning: Different number of results. results1: {len(results1)}, results2: {len(results2)}")
+            min_len = min(len(results1), len(results2))
+            results1 = results1[:min_len]
+            results2 = results2[:min_len]
+            print(f"  Using first {min_len} entries from each file")
+        
+        # Compute differences for each measure (results2 - results1)
+        differences = []
+        metrics = ['value', 'delivery_time', 'agent_sum_distance', 'message_air_distance']
+        
+        nr_points = len(results1)
+        for j in range(nr_points):
+            diff_dict = {
+                'idx': results1[j].get('idx', j+1),
+                'K': k,
+                'value_diff': results2[j]['value'] - results1[j]['value'],
+                'delivery_time_diff': results2[j]['delivery_time'] / results1[j]['delivery_time'] if results1[j]['delivery_time'] != 0 else 0,
+                'agent_sum_distance_diff': results2[j]['agent_sum_distance'] - results1[j]['agent_sum_distance'],
+                #'message_air_distance_diff': results2[j]['message_air_distance'] / results1[j]['message_air_distance'] if results1[j]['message_air_distance'] != 0 else 0
+            }
+            differences.append(diff_dict)
+        
+        # Create comparison plots based on compare_mode
+        compare_plot_dir = os.path.join(plot_dir, "Histograms", f"{conf_string}")
+        
+        if compare_mode == "hist":
+            print(f"\nGenerating histogram comparison...")
+            plot_comparison_histograms(differences, method1, method2, 
+                                      plot_dir=compare_plot_dir, k=k, extra_string=conf_string)
+        elif compare_mode == "scatter":
+            print(f"\nGenerating scatter plot comparison...")
+            plot_comparison_scatter(results1, results2, method1, method2, 
+                                   plot_dir=compare_plot_dir, k=k)
+        elif compare_mode == "heatmap":
+            print(f"\nGenerating heatmap comparison...")
+            plot_comparison_heatmap(results1, results2, method1, method2, 
+                                   plot_dir=compare_plot_dir, k=k, detailed=True)
+        else:
+            print(f"Warning: Unknown compare_mode '{compare_mode}'. Using heatmap.")
+            plot_comparison_heatmap(results1, results2, method1, method2, 
+                                   plot_dir=compare_plot_dir, k=k, detailed=True)
+        
+        # Print summary statistics
+        print(f"\nK={k} Comparison Summary ({method2} vs {method1}):")
+        for metric in metrics:
+            diff_values = [d[f'{metric}_diff'] for d in differences if f'{metric}_diff' in d]
+            if diff_values:
+                mean_diff = np.mean(diff_values)
+                std_diff = np.std(diff_values)
+                median_diff = np.median(diff_values)
+                print(f"  {metric}: mean={mean_diff:.4f}, std={std_diff:.4f}, median={median_diff:.4f}")
 
 if __name__ == "__main__":
     main()
