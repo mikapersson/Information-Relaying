@@ -118,7 +118,7 @@ class Info_relay_env(ParallelEnv):
         self.pre_determined_scenario = pre_determined_scenario
         if self.pre_determined_scenario:
             self.eval_state_file = f"initial_state_pool/evaluation_states_K{self.n_agents}_n10000.csv"
-            self.evaluation_logger = EvaluationLogger(self.antenna_used, self.n_agents, self.eval_state_file, f"MAPPO_evaluation_results_K{self.n_agents}_cpos0.5_cphi0.1_n10000_dir{int(self.antenna_used)}_jam{self.num_emitters}.csv")
+            self.evaluation_logger = EvaluationLogger(self.antenna_used, self.n_agents, self.eval_state_file, f"TEST_MAPPO_evaluation_results_K{self.n_agents}_cpos0.5_cphi0.1_n10000_dir{int(self.antenna_used)}_jam{self.num_emitters}.csv")
             self.pre_loaded_scenarios = []
             self.scenario_index_counter = 0
             self.evaluation_logger.update_episode_index(self.scenario_index_counter)
@@ -442,6 +442,7 @@ class Info_relay_env(ParallelEnv):
             emitter.state.theta = 0.0 # TODO - maybe randomize?
             emitter.state.p_pos_history = []
 
+
     def apply_pre_loaded_scenario(self):
         """
             Reset scenario based on csv file loaded via read_scenario_csv()
@@ -567,6 +568,9 @@ class Info_relay_env(ParallelEnv):
             infos = {agent.name: None for agent in self.world.agents}
         else:
             infos = {agent.name: None for agent in self.world.agents} # this case (one discrete action) is probably not used but is nedded to be changed in that case
+        
+        if self.pre_determined_scenario and self.scenario_index_counter > 0:
+            self.evaluation_logger.begin_episode(self.scenario_index_counter)
 
         return observations, infos 
     
@@ -673,7 +677,10 @@ class Info_relay_env(ParallelEnv):
             self.evaluation_logger.add_value(self.timestep, total_reward)
             self.evaluation_logger.add_delivery_time(1)
 
-            self.evaluation_logger.log_trajectory(self.timestep, self.world.agents)
+            if self.scenario_index_counter > 0:
+                self.evaluation_logger.log_trajectory(self.timestep, self.world.agents)
+
+                self.evaluation_logger.log_step(int(self.timestep), self.world.agents, self.world.emitters[0], bool(self.num_emitters)) 
         
         terminations = self.terminate()
         #terminations = {agent.name: False for agent in self.world.agents}
@@ -700,7 +707,12 @@ class Info_relay_env(ParallelEnv):
                 self.evaluation_logger.set_delivery_time(T_D)
 
                 print("writing episode to file: ", self.evaluation_logger.episode_index)
+                #self.evaluation_logger.end_episode()
                 self.evaluation_logger.write_episode()
+
+                if self.scenario_index_counter == 10:
+                    self.evaluation_logger.save_episodes()
+
             self.scenario_index_counter += 1
             self.evaluation_logger.update_episode_index(self.scenario_index_counter)
 

@@ -2,6 +2,7 @@ from copy import copy
 import math
 import numpy as np
 import csv
+import pickle
 
 from dataclasses import dataclass, field
 
@@ -33,7 +34,16 @@ class EvaluationLogger:
         # logging trajectories
         self.p_trajectories = {i: {} for i in range(K)}
         self.phi_trajectories = {i: {} for i in range(K)}
-        
+
+        # Trajectories: dict of dicts of dicts - store all data at the same time
+        self.episodes_data = {}  # {episode_idx: {timestep: {column_name: value}}}
+
+        if self.evaluation_log.endswith(".csv"):
+            self.pkl_path = self.evaluation_log[:-4] + ".pkl"
+        else:
+            self.pkl_path = self.evaluation_log + ".pkl"
+
+           
     def log_trajectory(self, t, agents):
         """
         agents: list of agent objects 
@@ -102,6 +112,53 @@ class EvaluationLogger:
 
     def set_value(self, value):
         self.value = value
+
+
+    def begin_episode(self, episode_idx):
+        """Initialize a new episode in the nested dict."""
+        self.episode_index = episode_idx
+        self.episodes_data[episode_idx] = {}  # timestep -> {columns: values}
+
+    def log_step(self, t, agents, jammer=None, jammer_on=False):
+        """
+        Log one timestep of an episode.
+        :param t: timestep
+        :param agents: list of agent objects (with state.p_pos, state.theta, message_buffer)
+        :param jammer: optional jammer object (with state.p_pos)
+        :param jammer_on: bool indicating if jammer is active
+        """
+        step_dict = {
+            "idx": self.episode_index,
+            "t": t,
+            "R": self.R,
+            "directed_transmission": self.directed_transmission,
+            "jammer_on": jammer_on
+        }
+
+        # Agents
+        for i, agent in enumerate(agents):
+            step_dict[f"agent{i}_x"] = float(agent.state.p_pos[0])
+            step_dict[f"agent{i}_y"] = float(agent.state.p_pos[1])
+            step_dict[f"agent{i}_phi"] = float(getattr(agent.state, "theta", 0.0))
+            step_dict[f"agent{i}_has_message"] = bool(agent.message_buffer)
+
+        # Jammer
+        if jammer is not None:
+            step_dict["jammer_x"] = float(jammer.state.p_pos[0])
+            step_dict["jammer_y"] = float(jammer.state.p_pos[1])
+        else:
+            step_dict["jammer_x"] = None
+            step_dict["jammer_y"] = None
+
+        # Save this timestep in the episode
+        self.episodes_data[self.episode_index][t] = step_dict
+
+    
+    def save_episodes(self):
+        """Save the nested dict to disk using pickle."""
+        with open(self.pkl_path, "wb") as f:
+            pickle.dump(self.episodes_data, f)
+
 
 class EntityState:  # physical/external base state of all entities
     def __init__(self):
