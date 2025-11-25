@@ -118,7 +118,7 @@ class Info_relay_env(ParallelEnv):
         self.pre_determined_scenario = pre_determined_scenario
         if self.pre_determined_scenario:
             self.eval_state_file = f"initial_state_pool/evaluation_states_K{self.n_agents}_n10000.csv"
-            self.evaluation_logger = EvaluationLogger(self.antenna_used, self.n_agents, self.eval_state_file, f"TEST_MAPPO_evaluation_results_K{self.n_agents}_cpos0.5_cphi0.1_n10000_dir{int(self.antenna_used)}_jam{self.num_emitters}.csv")
+            self.evaluation_logger = EvaluationLogger(self.antenna_used, self.num_emitters, self.n_agents, self.eval_state_file, f"MAPPO_evaluation_results_K{self.n_agents}_cpos0.5_cphi0.1_n10000_dir{int(self.antenna_used)}_jam{self.num_emitters}.csv")
             self.pre_loaded_scenarios = []
             self.scenario_index_counter = 0
             self.evaluation_logger.update_episode_index(self.scenario_index_counter)
@@ -680,7 +680,7 @@ class Info_relay_env(ParallelEnv):
             if self.scenario_index_counter > 0:
                 self.evaluation_logger.log_trajectory(self.timestep, self.world.agents)
 
-                self.evaluation_logger.log_step(int(self.timestep), self.world.agents, self.world.emitters[0], bool(self.num_emitters)) 
+                self.evaluation_logger.log_step(int(self.timestep), self.world.agents, self.world.emitters, bool(self.num_emitters)) 
         
         terminations = self.terminate()
         #terminations = {agent.name: False for agent in self.world.agents}
@@ -710,7 +710,7 @@ class Info_relay_env(ParallelEnv):
                 #self.evaluation_logger.end_episode()
                 self.evaluation_logger.write_episode()
 
-                if self.scenario_index_counter == 10:
+                if self.scenario_index_counter == 10000:
                     self.evaluation_logger.save_episodes()
 
             self.scenario_index_counter += 1
