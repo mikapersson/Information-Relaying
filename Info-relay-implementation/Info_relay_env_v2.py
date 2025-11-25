@@ -67,7 +67,7 @@ class Info_relay_env(ParallelEnv):
                  continuous_actions = True, one_hot_vector = False, antenna_used = True, 
                  com_used = True, num_messages = 1, base_always_transmitting = True, 
                  observe_self = True, render_mode = None, using_half_velocity = False,
-                 pre_determined_scenario = False, num_CL_episodes = 0, num_r_help_episodes = 0,
+                 pre_determined_scenario = True, num_CL_episodes = 0, num_r_help_episodes = 0,
                  evaluating = True):
         
         #if evaluating: # if evaluating is run turn of all help - not automatic yet
@@ -710,8 +710,9 @@ class Info_relay_env(ParallelEnv):
                 #self.evaluation_logger.end_episode()
                 self.evaluation_logger.write_episode()
 
-                if self.scenario_index_counter == 10000:
+                if self.scenario_index_counter % 5000 == 0:
                     self.evaluation_logger.save_episodes()
+                    self.evaluation_logger.switch_file()
 
             self.scenario_index_counter += 1
             self.evaluation_logger.update_episode_index(self.scenario_index_counter)

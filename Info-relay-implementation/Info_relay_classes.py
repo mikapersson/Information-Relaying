@@ -39,9 +39,9 @@ class EvaluationLogger:
         self.episodes_data = {}  # {episode_idx: {timestep: {column_name: value}}}
 
         if self.evaluation_log.endswith(".csv"):
-            self.pkl_path = f"../Evaluation/Trajectories/dir{int(self.directed_transmission)}_jam{int(jammer_on)}_cpos0.5_cphi0.1/MAPPO/" + self.evaluation_log[:-4] + ".pkl"
+            self.pkl_path = f"../Evaluation/Trajectories/dir{int(self.directed_transmission)}_jam{int(jammer_on)}_cpos0.5_cphi0.1/MAPPO/" + self.evaluation_log[:-4] + "_1.pkl"
         else:
-            self.pkl_path = f"../Evaluation/Trajectories/dir{int(self.directed_transmission)}_jam{int(jammer_on)}_cpos0.5_cphi0.1/MAPPO/" + self.evaluation_log + ".pkl"
+            self.pkl_path = f"../Evaluation/Trajectories/dir{int(self.directed_transmission)}_jam{int(jammer_on)}_cpos0.5_cphi0.1/MAPPO/" + self.evaluation_log + "_1.pkl"
 
            
     def log_trajectory(self, t, agents):
@@ -139,12 +139,19 @@ class EvaluationLogger:
             step_dict["jammer_x"] = None
             step_dict["jammer_y"] = None
 
-        step_dict["scenario_file"] = self.scenario_file
+        #step_dict["scenario_file"] = self.scenario_file
         
 
         self.episodes_data[self.episode_index][t] = step_dict
 
-    
+
+    def switch_file(self):
+        """Switch from _1.pkl to _2.pkl."""
+        self.pkl_path = self.pkl_path[:-5] + "2.pkl"
+        self.episodes_data = {}
+        print(f"Switched logging to: {self.pkl_path}")
+
+
     def save_episodes(self):
         """Save the nested dict to disk using pickle."""
         with open(self.pkl_path, "wb") as f:
