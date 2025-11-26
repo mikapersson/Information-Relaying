@@ -67,7 +67,7 @@ class Info_relay_env(ParallelEnv):
                  continuous_actions = True, one_hot_vector = False, antenna_used = True, 
                  com_used = True, num_messages = 1, base_always_transmitting = True, 
                  observe_self = True, render_mode = None, using_half_velocity = False,
-                 pre_determined_scenario = False, num_CL_episodes = 0, num_r_help_episodes = 0,
+                 pre_determined_scenario = True, num_CL_episodes = 0, num_r_help_episodes = 0,
                  evaluating = True):
         
         #if evaluating: # if evaluating is run turn of all help - not automatic yet
@@ -118,7 +118,7 @@ class Info_relay_env(ParallelEnv):
         self.pre_determined_scenario = pre_determined_scenario
         if self.pre_determined_scenario:
             self.eval_state_file = f"initial_state_pool/evaluation_states_K{self.n_agents}_n10000.csv"
-            self.evaluation_logger = EvaluationLogger(self.antenna_used, self.n_agents, self.eval_state_file, f"TEST_MAPPO_evaluation_results_K{self.n_agents}_cpos0.5_cphi0.1_n10000_dir{int(self.antenna_used)}_jam{self.num_emitters}.csv")
+            self.evaluation_logger = EvaluationLogger(self.antenna_used, self.num_emitters, self.n_agents, self.eval_state_file, f"MAPPO_evaluation_results_K{self.n_agents}_cpos0.5_cphi0.1_n10000_dir{int(self.antenna_used)}_jam{self.num_emitters}.csv")
             self.pre_loaded_scenarios = []
             self.scenario_index_counter = 0
             self.evaluation_logger.update_episode_index(self.scenario_index_counter)
@@ -572,6 +572,10 @@ class Info_relay_env(ParallelEnv):
         if self.pre_determined_scenario and self.scenario_index_counter > 0:
             self.evaluation_logger.begin_episode(self.scenario_index_counter)
 
+            # logging the initial timestep
+            self.evaluation_logger.log_trajectory(self.timestep, self.world.agents)
+            self.evaluation_logger.log_step(int(self.timestep), self.world.agents, self.world.emitters, bool(self.num_emitters)) 
+
         return observations, infos 
     
 
@@ -656,6 +660,8 @@ class Info_relay_env(ParallelEnv):
 
         # run all comunications in the env
         self.communication_kernel()
+
+        self.timestep += 1
         
         ## here we can look at the rewards - after world step - could be done after observations instead!
         global_reward = self.global_reward()
@@ -680,14 +686,14 @@ class Info_relay_env(ParallelEnv):
             if self.scenario_index_counter > 0:
                 self.evaluation_logger.log_trajectory(self.timestep, self.world.agents)
 
-                self.evaluation_logger.log_step(int(self.timestep), self.world.agents, self.world.emitters[0], bool(self.num_emitters)) 
+                self.evaluation_logger.log_step(int(self.timestep), self.world.agents, self.world.emitters, bool(self.num_emitters)) 
         
         terminations = self.terminate()
         #terminations = {agent.name: False for agent in self.world.agents}
 
         # handle truncation
         truncations = {agent.name: False for agent in self.world.agents}
-        if self.timestep > self.max_iter - 2:
+        if self.timestep > self.max_iter - 1:
             #rewards = {agent.name: 0.0 for agent in self.world.agents} # maybe add reward for bases/emitters later on? far future
             truncations = {agent.name: True for agent in self.world.agents}
             self.agents = []
@@ -710,13 +716,12 @@ class Info_relay_env(ParallelEnv):
                 #self.evaluation_logger.end_episode()
                 self.evaluation_logger.write_episode()
 
-                if self.scenario_index_counter == 10:
+                if self.scenario_index_counter % 5000 == 0:
                     self.evaluation_logger.save_episodes()
+                    self.evaluation_logger.switch_file()
 
             self.scenario_index_counter += 1
             self.evaluation_logger.update_episode_index(self.scenario_index_counter)
-
-        self.timestep += 1
 
 
         # generate new observations
@@ -1246,6 +1251,7 @@ class Info_relay_env(ParallelEnv):
         return observations
 
     def _seed(self, seed=None):
+        seed = None # too always randomize
         self.np_random, seed = seeding.np_random(seed)
 
     # OBS maybe add @functools.lru_cache(maxsize=None) - could reduce compute time

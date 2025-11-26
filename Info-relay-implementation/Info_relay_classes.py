@@ -11,7 +11,7 @@ Taken from pettingzoo MPE and altered
 """
 
 class EvaluationLogger:
-    def __init__(self, directed_transmission = False, K = 0, scenario_file = "", evaluation_log = "evaluation_log"):
+    def __init__(self, directed_transmission = False, jammer_on = False, K = 0, scenario_file = "", evaluation_log = "evaluation_log"):
         self.episode_index = 0
         self.success = False
         self.R = 0
@@ -35,19 +35,16 @@ class EvaluationLogger:
         self.p_trajectories = {i: {} for i in range(K)}
         self.phi_trajectories = {i: {} for i in range(K)}
 
-        # Trajectories: dict of dicts of dicts - store all data at the same time
+        # To save all data in all episodes
         self.episodes_data = {}  # {episode_idx: {timestep: {column_name: value}}}
 
         if self.evaluation_log.endswith(".csv"):
-            self.pkl_path = self.evaluation_log[:-4] + ".pkl"
+            self.pkl_path = f"../Evaluation/Trajectories/dir{int(self.directed_transmission)}_jam{int(jammer_on)}_cpos0.5_cphi0.1/MAPPO/" + self.evaluation_log[:-4] + "_1.pkl"
         else:
-            self.pkl_path = self.evaluation_log + ".pkl"
+            self.pkl_path = f"../Evaluation/Trajectories/dir{int(self.directed_transmission)}_jam{int(jammer_on)}_cpos0.5_cphi0.1/MAPPO/" + self.evaluation_log + "_1.pkl"
 
            
     def log_trajectory(self, t, agents):
-        """
-        agents: list of agent objects 
-        """
         for i, agent in enumerate(agents):
             pos = np.array(agent.state.p_pos, dtype=float)
             theta = getattr(agent.state, "theta", None)
@@ -113,47 +110,48 @@ class EvaluationLogger:
     def set_value(self, value):
         self.value = value
 
-
+    # logging all timesteps file
     def begin_episode(self, episode_idx):
-        """Initialize a new episode in the nested dict."""
         self.episode_index = episode_idx
-        self.episodes_data[episode_idx] = {}  # timestep -> {columns: values}
+        self.episodes_data[episode_idx] = {}  
 
     def log_step(self, t, agents, jammer=None, jammer_on=False):
-        """
-        Log one timestep of an episode.
-        :param t: timestep
-        :param agents: list of agent objects (with state.p_pos, state.theta, message_buffer)
-        :param jammer: optional jammer object (with state.p_pos)
-        :param jammer_on: bool indicating if jammer is active
-        """
+        #Log one timestep of an episode.
         step_dict = {
-            "idx": self.episode_index,
-            "t": t,
+            "idx": int(self.episode_index),
+            "t": int(t),
             "R": self.R,
             "directed_transmission": self.directed_transmission,
             "jammer_on": jammer_on
         }
 
-        # Agents
         for i, agent in enumerate(agents):
             step_dict[f"agent{i}_x"] = float(agent.state.p_pos[0])
             step_dict[f"agent{i}_y"] = float(agent.state.p_pos[1])
             step_dict[f"agent{i}_phi"] = float(getattr(agent.state, "theta", 0.0))
             step_dict[f"agent{i}_has_message"] = bool(agent.message_buffer)
 
-        # Jammer
-        if jammer is not None:
+        if jammer_on:
+            jammer = jammer[0]
             step_dict["jammer_x"] = float(jammer.state.p_pos[0])
             step_dict["jammer_y"] = float(jammer.state.p_pos[1])
         else:
             step_dict["jammer_x"] = None
             step_dict["jammer_y"] = None
 
-        # Save this timestep in the episode
+        #step_dict["scenario_file"] = self.scenario_file
+        
+
         self.episodes_data[self.episode_index][t] = step_dict
 
-    
+
+    def switch_file(self):
+        """Switch from _1.pkl to _2.pkl."""
+        self.pkl_path = self.pkl_path[:-5] + "2.pkl"
+        self.episodes_data = {}
+        print(f"Switched logging to: {self.pkl_path}")
+
+
     def save_episodes(self):
         """Save the nested dict to disk using pickle."""
         with open(self.pkl_path, "wb") as f:
