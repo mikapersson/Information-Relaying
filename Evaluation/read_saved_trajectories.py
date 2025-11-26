@@ -15,6 +15,21 @@ def load_episodes(filepath):
     
     return episodes_dict
 
+def read_runs(base_filename):
+    """
+    Loads <base>_1.pkl and <base>_2.pkl and merges them into one dict
+    """
+
+    f1 = f"{base_filename}_1.pkl"
+    f2 = f"{base_filename}_2.pkl"
+
+    data1 = load_episodes(f1) or {}
+    data2 = load_episodes(f2) or {}
+
+    merged = {**data1, **data2}
+    
+    return merged
+
 def convert_dicts_to_df(episodes_dict):
     # Convert nested dict to DataFrame
     all_dfs = []
@@ -29,7 +44,7 @@ def convert_dicts_to_df(episodes_dict):
 
 def select_episode(data, episode_idx):
     """
-    load_episodes() has to have been called before this function
+    read_runs() has to have been called before this function
     Select a single episode from either:
       - episodes_dict  → returns episode_dict
       - full_df        → returns episode_df (DataFrame)
@@ -76,7 +91,7 @@ def select_episode(data, episode_idx):
 if __name__ == "__main__":
 
     # Load from pickle file
-    episodes_dict = load_episodes("/home/u099435/Info_relay_project/Information-Relaying/Info-relay-implementation/MAPPO_evaluation_results_K5_cpos0.5_cphi0.1_n10000_dir0_jam1.pkl")
+    episodes_dict = read_runs("/home/u099435/Info_relay_project/Information-Relaying/Evaluation/Trajectories/dir0_jam1_cpos0.5_cphi0.1/MAPPO/TEST_MAPPO_evaluation_results_K5_cpos0.5_cphi0.1_n10000_dir0_jam1")
     full_df = convert_dicts_to_df(episodes_dict)
     
     # Access nested dict
@@ -90,8 +105,8 @@ if __name__ == "__main__":
 
     #episode_1_df = full_df[full_df["episode_idx"] == 1] 
     episode_1_df = select_episode(full_df, 1) # how to access a specific episode - the first episode is 1, not 0
-
+    print(episode_1_df)
     # accessing specifc columns/values in the episode dataframe: 
     cols = ["agent0_x", "agent0_y", "agent0_phi"]
-    agent0_data = episode_1_df[cols]
-    print(agent0_data) 
+    #agent0_data = episode_1_df[cols]
+    #print(agent0_data) 
