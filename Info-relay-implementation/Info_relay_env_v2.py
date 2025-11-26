@@ -701,11 +701,20 @@ class Info_relay_env(ParallelEnv):
         if self.evaluation_logger is not None and ( any(list(terminations.values())) or any(list(truncations.values())) ):
             if self.scenario_index_counter > 0:
                 # calculating using compute_metrics:
-                value, T_D, D_tot = self.compute_metrics(p_trajectories=self.evaluation_logger.p_trajectories, 
+                # when the games ends succesfully
+                if any(list(terminations.values())):
+                    value, T_D, D_tot = self.compute_metrics(p_trajectories=self.evaluation_logger.p_trajectories, 
                                                          phi_trajectories=self.evaluation_logger.phi_trajectories, 
                                                          c_pos=self.world.agents[0].movement_cost, 
                                                          c_phi=self.world.agents[0].radar_cost,
                                                          budget=self.evaluation_logger.budget, 
+                                                         beta=0.99) # discount_factor
+                else: # then the games end due to timestep limit (the agents have not solved the task)
+                    value, T_D, D_tot = self.compute_metrics(p_trajectories=self.evaluation_logger.p_trajectories, 
+                                                         phi_trajectories=self.evaluation_logger.phi_trajectories, 
+                                                         c_pos=self.world.agents[0].movement_cost, 
+                                                         c_phi=self.world.agents[0].radar_cost,
+                                                         budget=0, 
                                                          beta=0.99) # discount_factor
                 
                 self.evaluation_logger.set_value(value)
