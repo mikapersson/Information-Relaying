@@ -497,10 +497,10 @@ class Info_relay_env(ParallelEnv):
         self.world.center = self.center
 
         for i, agent in enumerate(self.world.agents):
-            agent.state.p_pos = np.array([scenario[12 + i * 2], scenario[13 + i * 2]])
+            agent.state.p_pos = np.array([scenario[12 + i * 3], scenario[13 + i * 3]])
             agent.state.p_vel = np.zeros(self.world.dim_p) 
 
-            agent.state.theta = scenario[14 + i * 2]
+            agent.state.theta = scenario[14 + i * 3]
             # initiate the message_buffer so that it always has the same size
             agent.message_buffer = False 
             agent.state.c = 0 # ingen agent börjar med meddelande - alltså sänder ingen i början - kanske inte behöver denna - kör bara .message_buffer
@@ -1222,7 +1222,47 @@ class Info_relay_env(ParallelEnv):
 
         # Return one flat observation array
         return np.concatenate([physical_observation, communication_observation])
+    
+    def observation_random_order(self, agent):
+        base_pos = [base.state.p_pos - agent.state.p_pos for base in self.world.bases]
 
+        sorted_others = [other for other in self.world.agents if other is not agent]
+
+        random.shuffle(sorted_others)
+
+        if self.num_emitters > 0: 
+            emitter_pos = [emitter.state.p_pos - agent.state.p_pos for emitter in self.world.emitters]
+            emitter_vel = [emitter.action.u[:2] for emitter in self.world.emitters]
+
+        other_pos = [other.state.p_pos - agent.state.p_pos for other in sorted_others]
+
+        if self.observe_self and self.num_emitters > 0:
+            physical_observation = np.concatenate([agent.state.p_pos] + base_pos + emitter_pos + emitter_vel + other_pos)
+        elif self.observe_self:
+            physical_observation = np.concatenate([agent.state.p_pos] + base_pos + other_pos)
+        elif self.num_emitters > 0:
+            physical_observation = np.concatenate(base_pos + emitter_pos + emitter_vel + other_pos)
+        else:
+            physical_observation = np.concatenate(base_pos + other_pos)
+
+        if self.antenna_used: 
+            own_antenna_direction = [np.cos(agent.state.theta), np.sin(agent.state.theta)]
+            
+            antenna_directions = []
+            for other in sorted_others:
+                antenna_directions += [np.cos(other.state.theta), np.sin(other.state.theta)]
+
+            all_antenna_directions = np.array(own_antenna_direction + antenna_directions)
+            physical_observation = np.concatenate([physical_observation, all_antenna_directions]) 
+
+        communication_observation = []
+        communication_observation.append(agent.message_buffer)  # its own observation is seperate - so the policy singels out the correct input corresponding to itself
+    
+        for other in sorted_others:  
+                communication_observation.append(other.message_buffer)
+
+        # Return one flat observation array
+        return np.concatenate([physical_observation, communication_observation])
 
     def simple_observation(self, agent):
         """Observation in simple games without communication"""
