@@ -1015,7 +1015,7 @@ def baseline(
         p_jammer_trajectory = {t: None for t in range(T_total+1)}
     # END IF isotropic non-jammed
         
-    # Non-isotropic and jammer scenarios
+    # Non-isotropic or jammer scenarios
     t_pickup_all = {}  # store pickup times for each active agent
     p_jammer_current = None
     v_jammer_current = None
