@@ -572,6 +572,10 @@ class Info_relay_env(ParallelEnv):
         if self.pre_determined_scenario and self.scenario_index_counter > 0:
             self.evaluation_logger.begin_episode(self.scenario_index_counter)
 
+            # logging the initial timestep
+            self.evaluation_logger.log_trajectory(self.timestep, self.world.agents)
+            self.evaluation_logger.log_step(int(self.timestep), self.world.agents, self.world.emitters, bool(self.num_emitters)) 
+
         return observations, infos 
     
 
@@ -656,6 +660,8 @@ class Info_relay_env(ParallelEnv):
 
         # run all comunications in the env
         self.communication_kernel()
+
+        self.timestep += 1
         
         ## here we can look at the rewards - after world step - could be done after observations instead!
         global_reward = self.global_reward()
@@ -687,7 +693,7 @@ class Info_relay_env(ParallelEnv):
 
         # handle truncation
         truncations = {agent.name: False for agent in self.world.agents}
-        if self.timestep > self.max_iter - 2:
+        if self.timestep > self.max_iter - 1:
             #rewards = {agent.name: 0.0 for agent in self.world.agents} # maybe add reward for bases/emitters later on? far future
             truncations = {agent.name: True for agent in self.world.agents}
             self.agents = []
@@ -716,8 +722,6 @@ class Info_relay_env(ParallelEnv):
 
             self.scenario_index_counter += 1
             self.evaluation_logger.update_episode_index(self.scenario_index_counter)
-
-        self.timestep += 1
 
 
         # generate new observations
@@ -1247,6 +1251,7 @@ class Info_relay_env(ParallelEnv):
         return observations
 
     def _seed(self, seed=None):
+        seed = None # too always randomize
         self.np_random, seed = seeding.np_random(seed)
 
     # OBS maybe add @functools.lru_cache(maxsize=None) - could reduce compute time
