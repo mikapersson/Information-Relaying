@@ -91,11 +91,11 @@ def select_episode(data, episode_idx):
 if __name__ == "__main__":
 
     # Load from pickle file
-    episodes_dict = read_runs("/home/u099435/Info_relay_project/Information-Relaying/Evaluation/Trajectories/dir0_jam1_cpos0.5_cphi0.1/MAPPO/TEST_MAPPO_evaluation_results_K5_cpos0.5_cphi0.1_n10000_dir0_jam1")
+    episodes_dict = read_runs("/home/u099435/Info_relay_project/Information-Relaying/Evaluation/Trajectories/dir1_jam1_cpos0.5_cphi0.1/MAPPO/TEST_MAPPO_evaluation_results_K5_cpos0.5_cphi0.1_n10000_dir1_jam1")
     full_df = convert_dicts_to_df(episodes_dict)
     
     # Access nested dict
-    print(episodes_dict[1][0])  # episode 1, timestep 0
+    print(episodes_dict[2][0])  # episode 1, timestep 0
     #print(episodes_dict)
 
     #print(full_df.head())
@@ -104,7 +104,7 @@ if __name__ == "__main__":
     #print(full_df[full_df["episode_idx" == 1]]) 
 
     #episode_1_df = full_df[full_df["episode_idx"] == 1] 
-    episode_1_df = select_episode(full_df, 1) # how to access a specific episode - the first episode is 1, not 0
+    episode_1_df = select_episode(full_df, 2) # how to access a specific episode - the first episode is 1, not 0
     print(episode_1_df)
     # accessing specifc columns/values in the episode dataframe: 
     cols = ["agent0_x", "agent0_y", "agent0_phi"]
