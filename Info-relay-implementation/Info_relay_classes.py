@@ -23,7 +23,7 @@ class EvaluationLogger:
         self.directed_transmission = directed_transmission
         self.K = K
         self.scenario_file = scenario_file.split("/")[-1]
-        self.evaluation_log = evaluation_log
+        self.evaluation_log = f"../Evaluation/Trajectories/dir{int(self.directed_transmission)}_jam{int(jammer_on)}_cpos0.5_cphi0.1/MAPPO/" + evaluation_log # change save path
         
         # idx, success, R, value, budget, sum_distance, air_distance, delivery_time, directed_transmission_bool, K, file
         self.f_eval = open(self.evaluation_log, 'w')
@@ -39,9 +39,9 @@ class EvaluationLogger:
         self.episodes_data = {}  # {episode_idx: {timestep: {column_name: value}}}
 
         if self.evaluation_log.endswith(".csv"):
-            self.pkl_path = f"../Evaluation/Trajectories/dir{int(self.directed_transmission)}_jam{int(jammer_on)}_cpos0.5_cphi0.1/MAPPO/" + self.evaluation_log[:-4] + "_1.pkl"
+            self.pkl_path = self.evaluation_log[:-4] + "_1.pkl"
         else:
-            self.pkl_path = f"../Evaluation/Trajectories/dir{int(self.directed_transmission)}_jam{int(jammer_on)}_cpos0.5_cphi0.1/MAPPO/" + self.evaluation_log + "_1.pkl"
+            self.pkl_path = self.evaluation_log + "_1.pkl"
 
            
     def log_trajectory(self, t, agents):
