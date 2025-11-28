@@ -2049,7 +2049,7 @@ def main():
     
     testing = False  # are we running on test data? (FINAL DATA) False -> Evaluation data
 
-    eval_mode = 14
+    eval_mode = 20
 
     eval_K = [1]
     """
@@ -2503,8 +2503,8 @@ def main():
     
     elif eval_mode == 14:  # Animate trajectory (takes trajectory file)
 
-        k = 2
-        row = 7
+        k = 3
+        row = 1
         #directed_transmission = False
         force_gen_traj = True
 
@@ -2736,7 +2736,7 @@ def main():
         
         # Create figure with len(K_compare_20) subplots vertically
         num_k = len(results_dict)
-        fig, axes = plt.subplots(num_k, 1, figsize=(12, 3*num_k))
+        fig, axes = plt.subplots(num_k, 1, figsize=(12, 2.4*num_k))
         
         # Handle case where there's only one K value
         if num_k == 1:
@@ -2767,7 +2767,8 @@ def main():
                 ax.legend([f'$K$={k}'], loc='upper left', fontsize=25)
 
                 # Only add x-label for the bottom subplot
-                ax.set_ylabel('density')
+                ax.set_ylabel('')
+                ax.set_yticks([])
                 if idx == num_k - 1:
                     ax.set_xlabel('value')
                 else:
@@ -2787,7 +2788,7 @@ def main():
         # Overall title
         #fig.suptitle(fr"Value histograms over $K$", fontsize=14, fontweight='bold')
         
-        plt.tight_layout(rect=[0, 0, 1, 0.94])
+        plt.tight_layout(rect=[0, 0, 1, 0.70])
         
         # Save plot
         plot_dir = os.path.join(plot_dir, "Histograms", "Baseline")
@@ -2809,34 +2810,13 @@ def main():
         - (1,0): directed=False, jammer=True
         - (1,1): directed=True, jammer=True
         """
-        k = 5
-        row = 1
+        k = 3
+        row = 9
         method = "Baseline"
         force_gen_traj = True
         
         sns.set_style("whitegrid")
         sns.set_palette("husl")
-        
-        if testing:
-            traj_dir = f"Testing/Data/Trajectories/{method}"
-            data_dir = "Testing/Data/Test_states"
-            plot_dir = f"Testing/Plots/{method}/Trajectories/Comparison_all_scenarios"
-        else:
-            traj_dir = f"Evaluation/Trajectories/{method}"
-            data_dir = "Evaluation/Evaluation_states/Data"
-            plot_dir = f"Evaluation/Plots/{method}/Trajectories/Comparison_all_scenarios"
-        
-        # Define all scenario combinations
-        scenarios = [
-            (False, False, "dir0_jam0"),
-            (True, False, "dir1_jam0"),
-            (False, True, "dir0_jam1"),
-            (True, True, "dir1_jam1")
-        ]
-        
-        # Create 2x2 figure
-        fig, axes = plt.subplots(4, 1, figsize=(16, 16))
-        axes = axes.flatten()
         
         # Set up LaTeX rendering and seaborn style
         plt.rcParams['text.usetex'] = True
@@ -2849,6 +2829,19 @@ def main():
         plt.rcParams['figure.titlesize'] = 14
         
         
+        # Define all scenario combinations
+        scenarios = [
+            (False, False, "dir0_jam0"),
+            (True, False, "dir1_jam0"),
+            (False, True, "dir0_jam1"),
+            (True, True, "dir1_jam1")
+        ]
+        
+        # Create 2x2 figure
+        fig, axes = plt.subplots(2, 2, figsize=(14, 9))
+        axes = axes.flatten()
+        
+        
         Rcom = 1.0
         agent_color = 'orange'
         passive_color = 'black'
@@ -2857,15 +2850,21 @@ def main():
         all_x_coords = []
         all_y_coords = []
         
-        for directed_transmission, jammer_on, scenario_name in scenarios:
-            traj_filename = f"{method.lower()}_K{k}_row{row}_dir{int(directed_transmission)}_jam{int(jammer_on)}_trajectory.csv"
-            traj_file_path = os.path.join(traj_dir, traj_filename)
+        for directed_tx, jammer, scenario_name in scenarios:
+
+            # Modify traj dir
+            traj_dir_dummy = traj_dir
+            traj_dir_dummy = traj_dir_dummy.rsplit("/", 2)[0]
+            traj_dir_temp = os.path.join(traj_dir_dummy, get_config_string(directed_tx, jammer, c_pos=c_pos, c_phi=c_phi), f"{method}")
+
+            traj_filename = f"{method.lower()}_K{k}_row{row}_dir{int(directed_tx)}_jam{int(jammer)}_trajectory.csv"
+            traj_file_path = os.path.join(traj_dir_temp, traj_filename)
             
             if not os.path.exists(traj_file_path) or force_gen_traj:
                 print(f"Generating trajectory for scenario {scenario_name}...")
                 generate_baseline_trajectory(k, row, data_dir, c_pos, c_phi, 
-                                            directed_transmission=directed_transmission, 
-                                            jammer_on=jammer_on, 
+                                            directed_transmission=directed_tx, 
+                                            jammer_on=jammer, 
                                             testing=testing, no_metrics=False)
             
             traj_data = pd.read_csv(traj_file_path)
@@ -2896,18 +2895,22 @@ def main():
             
             x_min = -cap_radius - 0.1 * Rcom
             x_max = R + cap_radius + 0.1 * Rcom
-            y_min = -cap_height/2 - 0.5 * Rcom  # Just outside capsule bottom
-            y_max = cap_height/2 + 0.5 * Rcom   # Just outside capsule top
+            y_min = -cap_height/2 - 0.73 * Rcom  # Just outside capsule bottom
+            y_max = cap_height/2 + 0.4 * Rcom   # Just outside capsule top
         else:
             x_min, x_max = -2, 12
-            y_min, y_max = -6, 6
+            y_min, y_max = -6.2, 6
         
         # Second pass: plot all scenarios with common axis limits
         for subplot_idx, (directed_transmission, jammer_on, scenario_name) in enumerate(scenarios):
             ax = axes[subplot_idx]
             
+            traj_dir_dummy = traj_dir
+            traj_dir_dummy = traj_dir_dummy.rsplit("/", 2)[0]
+            traj_dir_temp = os.path.join(traj_dir_dummy, get_config_string(directed_transmission, jammer_on, c_pos=c_pos, c_phi=c_phi), f"{method}")
+
             traj_filename = f"{method.lower()}_K{k}_row{row}_dir{int(directed_transmission)}_jam{int(jammer_on)}_trajectory.csv"
-            traj_file_path = os.path.join(traj_dir, traj_filename)
+            traj_file_path = os.path.join(traj_dir_temp, traj_filename)
             
             traj_data = pd.read_csv(traj_file_path)
             
@@ -2947,7 +2950,7 @@ def main():
             # Plot agent init area
             init_circle = patches.Circle((R/2, 0), radius=Ra, color='gray', 
                                         fill=False, linestyle=':', linewidth=1.5, alpha=0.4)
-            ax.add_patch(init_circle)
+            #ax.add_patch(init_circle)
             
             # Plot jammer capsule if active
             if jammer_on:
@@ -3036,7 +3039,7 @@ def main():
                     if not directed_transmission:
                         agent_rcom_circle = patches.Circle((final_x, final_y), radius=Rcom_k, 
                                                         color=agent_color, fill=False, linestyle='--', 
-                                                        linewidth=1.5, alpha=0.4, zorder=2)
+                                                        linewidth=1.5, alpha=0.7, zorder=2)
                         ax.add_patch(agent_rcom_circle)
                     
                     # Plot antenna lobe at final position if directed transmission
@@ -3058,25 +3061,26 @@ def main():
             ax.scatter(R, 0, s=250, marker='s', color='green', alpha=0.8, 
                     edgecolors='darkgreen', linewidth=1.5, zorder=5)
             
-            # Plot jammer trajectory if present
-            jammer_col_x = 'jammer_x'
-            jammer_col_y = 'jammer_y'
-            if jammer_col_x in traj_data.columns and jammer_col_y in traj_data.columns:
-                jammer_data = traj_data[[jammer_col_x, jammer_col_y]].dropna()
-                if len(jammer_data) > 0:
-                    jammer_x_coords = jammer_data[jammer_col_x].values
-                    jammer_y_coords = jammer_data[jammer_col_y].values
-                    jammer_t_max = len(jammer_x_coords) - 1
-                    
-                    for t in range(len(jammer_x_coords) - 1):
-                        alpha_val = 0.2 + 0.8 * (t / max(jammer_t_max, 1))
-                        ax.plot(jammer_x_coords[t:t+2], jammer_y_coords[t:t+2], 
-                            alpha=alpha_val, linewidth=1.5, linestyle='--', color='red', zorder=0)
-                    
-                    final_jammer_x = jammer_x_coords[-1]
-                    final_jammer_y = jammer_y_coords[-1]
-                    ax.scatter(final_jammer_x, final_jammer_y, s=150, marker='^', 
-                            color='red', alpha=0.8, edgecolors='darkred', linewidth=1.5, zorder=10)
+            # Plot jammer trajectory if present and jammer is active
+            if jammer_on:
+                jammer_col_x = 'jammer_x'
+                jammer_col_y = 'jammer_y'
+                if jammer_col_x in traj_data.columns and jammer_col_y in traj_data.columns:
+                    jammer_data = traj_data[[jammer_col_x, jammer_col_y]].dropna()
+                    if len(jammer_data) > 0:
+                        jammer_x_coords = jammer_data[jammer_col_x].values
+                        jammer_y_coords = jammer_data[jammer_col_y].values
+                        jammer_t_max = len(jammer_x_coords) - 1
+                        
+                        for t in range(len(jammer_x_coords) - 1):
+                            alpha_val = 0.2 + 0.8 * (t / max(jammer_t_max, 1))
+                            ax.plot(jammer_x_coords[t:t+2], jammer_y_coords[t:t+2], 
+                                alpha=alpha_val, linewidth=1.5, linestyle='--', color='red', zorder=0)
+                        
+                        final_jammer_x = jammer_x_coords[-1]
+                        final_jammer_y = jammer_y_coords[-1]
+                        ax.scatter(final_jammer_x, final_jammer_y, s=150, marker='^', 
+                                color='red', alpha=0.8, edgecolors='darkred', linewidth=1.5, zorder=10)
             
             # Set axis properties
             ax.set_aspect('equal')
@@ -3091,31 +3095,45 @@ def main():
             ax.set_xlim(x_min, x_max)
             ax.set_ylim(y_min, y_max)
             
-            # Add legend and subtitle
-            #ax.legend(loc='upper left', fontsize=11)
+            # Add subtitle
             subtitle = f"directed={int(directed_transmission)}, jammer={int(jammer_on)}"
             #ax.set_title(subtitle, fontsize=12, fontweight='bold')
             
             ax.grid(False)
         
-        # Overall title
-        #fig.suptitle(f'{method} Trajectories: All Scenarios (K={k}, Row={row})', 
-        #            fontsize=14, fontweight='bold')
-        #plt.tight_layout(pad=-0.1, w_pad=-0.1, h_pad=-0.1)
-        # plt.subplots_adjust(left=0.001, right=0.999, top=0.999, bottom=0.001, wspace=-0.1, hspace=-0.1) 
+        # Create common legend using dummy handles
+        legend_handles = [
+            plt.Line2D([0], [0], marker='s', color='w', markerfacecolor='blue', 
+                      markeredgecolor='darkblue', markersize=10, label=r'Sender', markeredgewidth=1.5),
+            #plt.Line2D([0], [0], color='blue', linestyle='--', linewidth=1.5, 
+            #          label=r'TX range'),
+            plt.Line2D([0], [0], marker='o', color='w', markerfacecolor='orange', 
+                      markeredgecolor='darkorange', markersize=8, label='Agent', markeredgewidth=1.5),
+            plt.Line2D([0], [0], marker='o', color='w', markerfacecolor='grey', 
+                      markeredgecolor='grey', markersize=8, label='Init.', markeredgewidth=1.5),
+            plt.Line2D([0], [0], marker='s', color='w', markerfacecolor='green', 
+                      markeredgecolor='darkgreen', markersize=10, label=r'Receiver', markeredgewidth=1.5),
+            #plt.Line2D([0], [0], marker='o', color='w', markerfacecolor='black', 
+            #          markeredgecolor='darkgrey', markersize=8, label='Passive', markeredgewidth=1.5),
+            
+            plt.Line2D([0], [0], marker='^', color='w', markerfacecolor='red', 
+                      markeredgecolor='darkred', markersize=10, label='Jammer', markeredgewidth=1.5)
+        ]
         
-        # 2x2
-        #plt.subplots_adjust(left=0.001, right=0.6, top=0.8, bottom=0.1, wspace=-0.05, hspace=-0.75)
+        # Add common legend as a horizontal row on top of all subplots
+        fig.legend(handles=legend_handles, loc='upper center', fontsize=20, 
+                  frameon=True, fancybox=True, shadow=False, ncol=5, 
+                  bbox_to_anchor=(0.375, 0.8))
         
-        # 4x1
-        plt.subplots_adjust(left=0.001, right=0.6, top=0.8, bottom=0.1, wspace=-0.05, hspace=0)
+        # Adjust subplot positioning: make subplots closer together with space at top for legend
+        plt.subplots_adjust(left=0.02, right=0.98, top=0.88, bottom=0.02, wspace=-0.4, hspace=-0.45)
         
 
         # Save plot
         if plot_dir:
             os.makedirs(plot_dir, exist_ok=True)
             plot_filename = f"{method.lower()}_K{k}_row{row}_all_scenarios.pdf"
-            plot_path = os.path.join(plot_dir, plot_filename)
+            plot_path = os.path.join(plot_dir, "Trajectories", "All", plot_filename)
             plt.savefig(plot_path, format='pdf', dpi=300, bbox_inches='tight',
                     facecolor='white', edgecolor='none', transparent=False)
             print(f"Saved 2x2 comparison plot to {plot_path}")
@@ -3130,7 +3148,7 @@ def main():
         - (1,0): directed=False, jammer=True
         - (1,1): directed=True, jammer=True
         """
-        k = 1
+        k = 3
         row = 1
         method = "Baseline"
         force_gen_traj = True
@@ -3946,7 +3964,6 @@ def main():
             print(f"Saved scene plot to {plot_path}")
         else:
             plt.show()
-
 
     elif eval_mode == 26:  # Compare baseline scenario results against each other
         """
