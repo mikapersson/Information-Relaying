@@ -574,7 +574,8 @@ class Info_relay_env(ParallelEnv):
 
             # logging the initial timestep
             self.evaluation_logger.log_trajectory(self.timestep, self.world.agents)
-            self.evaluation_logger.log_step(int(self.timestep), self.world.agents, self.world.emitters, bool(self.num_emitters)) 
+            if self.scenario_index_counter % 20 == 0:
+                self.evaluation_logger.log_step(int(self.timestep), self.world.agents, self.world.emitters, bool(self.num_emitters)) 
 
         return observations, infos 
     
@@ -686,7 +687,7 @@ class Info_relay_env(ParallelEnv):
             if self.scenario_index_counter > 0:
                 self.evaluation_logger.log_trajectory(self.timestep, self.world.agents)
 
-                if self.timestep % 20 == 0: # save only every 20th episode
+                if self.scenario_index_counter % 20 == 0: # save only every 20th episode
                     self.evaluation_logger.log_step(int(self.timestep), self.world.agents, self.world.emitters, bool(self.num_emitters)) 
         
         terminations = self.terminate()
