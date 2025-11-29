@@ -2049,9 +2049,9 @@ def main():
     
     testing = False  # are we running on test data? (FINAL DATA) False -> Evaluation data
 
-    eval_mode = 13
+    eval_mode = 16
 
-    eval_K = [3]
+    eval_K = [5]
 
     value_remove_below = -10  
     value_remove_above = 20
@@ -2078,7 +2078,7 @@ def main():
     c_pos = 0.5 #[0.5, 1]  # motion cost parameter
     c_phi = 0.1  # antenna cost parameter
     
-    directed_transmission = True 
+    directed_transmission = False 
     jammer_on = False
     clustering_on = True 
     minimize_distance = False  # minimize total movement instead of fasted delivery time
@@ -2476,7 +2476,7 @@ def main():
     elif eval_mode == 13:  # Plot trajectory (takes trajectory file)
 
         k = 3
-        row = 1
+        row = 2
         #jammer_on=False
         method = "Baseline"  # Baseline or MADDPG or MAPPO
         force_gen_traj = True
@@ -2599,11 +2599,11 @@ def main():
         # File handling
         plot_dir = f"Media/Figures/Heatmaps/{conf_string}"
         load_string = "test" if testing else "evaluation"
-        extra_string = ""  #"Noisy_"  # "" if nothing extra
+        extra_string = "Noisy_"  # "" if nothing extra
         keep_sup_title = True
         
         # ===== SELECT WHICH METHODS TO COMPARE =====
-        methods_to_compare = ["baseline", "MAPPO"]  # Choose subset: e.g., ["baseline", "MADDPG"]
+        methods_to_compare = ["baseline",  "MADDPG", "MAPPO"]  # Choose subset: e.g., ["baseline", "MADDPG"]
         # Other options:
         # methods_to_compare = ["baseline", "MADDPG"]
         # methods_to_compare = ["baseline", "MAPPO"]
@@ -4057,7 +4057,7 @@ def main():
         else:
             print("Error: Need at least 2 scenarios to compare!")
     
-    elif eval_mode == 27:  # Placeholder for future evaluation mode
+    elif eval_mode == 27:  # Placeholder for future mode
         pass
 
 if __name__ == "__main__":
