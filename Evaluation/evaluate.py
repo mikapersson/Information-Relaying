@@ -1146,14 +1146,13 @@ def plot_comparison_heatmap_all(comparisons, eval_K, plot_dir=None, methods_str=
             min_val, max_val = global_limits[key]
 
             # consistent bins
-            n_bins = 50
+            n_bins = 60
             bins = np.linspace(min_val, max_val, n_bins)
 
             # ------------------------------------------
-            # Compute global max count across all Ks (per comparison)
+            # Compute heatmaps for each K (per comparison)
             # ------------------------------------------
             heatmaps_by_k = {}
-            global_max = 0
 
             for k in eval_K:
                 if k in results1_dict and k in results2_dict:
@@ -1174,19 +1173,17 @@ def plot_comparison_heatmap_all(comparisons, eval_K, plot_dir=None, methods_str=
                             H[yi, xi] += 1
 
                     heatmaps_by_k[k] = H
-                    global_max = max(global_max, H.max())
-
-            global_max = max(global_max, 1)  # avoid divide-by-zero
 
             # ------------------------------------------
-            # Plot each K's normalized heatmap
+            # Plot each K's normalized heatmap (normalized per K)
             # ------------------------------------------
             for k_idx, k in enumerate(eval_K):
                 if k not in heatmaps_by_k:
                     continue
 
                 H = heatmaps_by_k[k]
-                H_norm = H / global_max
+                k_max = max(H.max(), 1)  # Per-K normalization
+                H_norm = H / k_max
 
                 # mask low intensities → white
                 H_mask = np.ma.masked_less(H_norm, threshold)
@@ -2062,9 +2059,9 @@ def main():
     
     testing = False  # are we running on test data? (FINAL DATA) False -> Evaluation data
 
-    eval_mode = 14
+    eval_mode = 16
 
-    eval_K = [1]
+    eval_K = [3,5,7,9]
     """
     value_remove_below = -10  
     value_remove_above = 20
@@ -2073,16 +2070,16 @@ def main():
     dist_remove_below = 0  
     dist_remove_above = 100 
     """
-    value_remove_below = -3  
-    value_remove_above = 25
+    value_remove_below = 0
+    value_remove_above = 11
     time_remove_below = -0  
-    time_remove_above = 65 
+    time_remove_above = 60 
     dist_remove_below = 0  
-    dist_remove_above = 40 
+    dist_remove_above = 50 
 
     # Configuration
-    K_start = 10
-    K_end = 10
+    K_start = 6
+    K_end = 9
     K = range(K_start, K_end+1)
     row_start = 1  
     row_end = 10000  # Specify the range of rows to evaluate
@@ -2624,7 +2621,7 @@ def main():
         # File handling
         plot_dir = f"Media/Figures/Heatmaps/{conf_string}"
         load_string = "test" if testing else "evaluation"
-        extra_string = "Noisy_"  # "" if nothing extra
+        extra_string = "" # "Noisy_"  # "" if nothing extra
         keep_sup_title = True
         
         # ===== SELECT WHICH METHODS TO COMPARE =====
