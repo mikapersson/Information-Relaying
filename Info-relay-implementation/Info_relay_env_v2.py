@@ -63,7 +63,7 @@ class Info_relay_env(ParallelEnv):
     }
 
     def __init__(self, num_agents = 1, num_bases = 2, num_emitters = 0, world_size = 1,
-                 a_max = 0.1, omega_max = np.pi/4, step_size = 1, max_cycles = 25, 
+                 a_max = 0.1, omega_max = np.pi/8, step_size = 1, max_cycles = 25, 
                  continuous_actions = True, one_hot_vector = False, antenna_used = True, 
                  com_used = True, num_messages = 1, base_always_transmitting = True, 
                  observe_self = True, render_mode = None, using_half_velocity = False,
@@ -1087,7 +1087,8 @@ class Info_relay_env(ParallelEnv):
         Calculates the SNR between transmitter and reciever. It is assumed that all entities can listen uniformly in all directions.
         All bases send uniformly in all directions. All agents send in the direction of its antenna
         """
-        if self.antenna_used:
+        # Base always transmits isotropic
+        if self.antenna_used and not isinstance(transmitter, Base):
             # agent is reciever, r, other is transmitter, t
             SNR = 0
             rel_pos = reciever.state.p_pos - transmitter.state.p_pos # t - r
