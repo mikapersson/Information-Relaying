@@ -2049,9 +2049,9 @@ def main():
     
     testing = False  # are we running on test data? (FINAL DATA) False -> Evaluation data
 
-    eval_mode = 13
+    eval_mode = 16
 
-    eval_K = [3]
+    eval_K = [5]
 
     value_remove_below = -10  
     value_remove_above = 20
@@ -2603,7 +2603,7 @@ def main():
         keep_sup_title = True
         
         # ===== SELECT WHICH METHODS TO COMPARE =====
-        methods_to_compare = ["baseline", "MAPPO"]  # Choose subset: e.g., ["baseline", "MADDPG"]
+        methods_to_compare = ["baseline",  "MADDPG", "MAPPO"]  # Choose subset: e.g., ["baseline", "MADDPG"]
         # Other options:
         # methods_to_compare = ["baseline", "MADDPG"]
         # methods_to_compare = ["baseline", "MAPPO"]
