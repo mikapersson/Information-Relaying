@@ -1,5 +1,6 @@
 import pickle
 import pandas as pd
+import os
 
 def load_episodes(filepath):
     """
@@ -89,9 +90,20 @@ def select_episode(data, episode_idx):
 
 
 if __name__ == "__main__":
+    # Specify trajectory file
+    directed = True
+    jamming = False
+    k = 3
+
+    dir = "Evaluation/Trajectories"
+    scenario = f"dir{int(directed)}_jam{int(jamming)}_cpos0.5_cphi0.1"
+    file_name = f"MAPPO_evaluation_results_K{k}_cpos0.5_cphi0.1_n10000_dir{int(directed)}_jam{int(jamming)}"
+    traj_path = os.path.join(dir, scenario, "MAPPO", file_name)
 
     # Load from pickle file
-    episodes_dict = read_runs("/home/u099435/Info_relay_project/Information-Relaying/Evaluation/Trajectories/dir1_jam1_cpos0.5_cphi0.1/MAPPO/TEST_MAPPO_evaluation_results_K5_cpos0.5_cphi0.1_n10000_dir1_jam1")
+    #episodes_dict = read_runs("/home/u099435/Info_relay_project/Information-Relaying/Evaluation/Trajectories/dir1_jam1_cpos0.5_cphi0.1/MAPPO/TEST_MAPPO_evaluation_results_K5_cpos0.5_cphi0.1_n10000_dir1_jam1")
+    episodes_dict = read_runs(traj_path)
+
     full_df = convert_dicts_to_df(episodes_dict)
     
     # Access nested dict
