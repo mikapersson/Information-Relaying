@@ -10,6 +10,9 @@ import matplotlib.patches as patches
 from PIL import Image
 
 
+# loading MAPPO files
+from read_saved_trajectories import *
+
 
 # Add the parent directory to sys.path to import baseline
 sys.path.append(str(Path(__file__).parent.parent))
@@ -1143,14 +1146,13 @@ def plot_comparison_heatmap_all(comparisons, eval_K, plot_dir=None, methods_str=
             min_val, max_val = global_limits[key]
 
             # consistent bins
-            n_bins = 50
+            n_bins = 60
             bins = np.linspace(min_val, max_val, n_bins)
 
             # ------------------------------------------
-            # Compute global max count across all Ks (per comparison)
+            # Compute heatmaps for each K (per comparison)
             # ------------------------------------------
             heatmaps_by_k = {}
-            global_max = 0
 
             for k in eval_K:
                 if k in results1_dict and k in results2_dict:
@@ -1171,19 +1173,17 @@ def plot_comparison_heatmap_all(comparisons, eval_K, plot_dir=None, methods_str=
                             H[yi, xi] += 1
 
                     heatmaps_by_k[k] = H
-                    global_max = max(global_max, H.max())
-
-            global_max = max(global_max, 1)  # avoid divide-by-zero
 
             # ------------------------------------------
-            # Plot each K's normalized heatmap
+            # Plot each K's normalized heatmap (normalized per K)
             # ------------------------------------------
             for k_idx, k in enumerate(eval_K):
                 if k not in heatmaps_by_k:
                     continue
 
                 H = heatmaps_by_k[k]
-                H_norm = H / global_max
+                k_max = max(H.max(), 1)  # Per-K normalization
+                H_norm = H / k_max
 
                 # mask low intensities → white
                 H_mask = np.ma.masked_less(H_norm, threshold)
@@ -1732,32 +1732,42 @@ def animate_trajectory(traj_dir, k, row, directed_transmission, jammer_on, metho
     agent_color_with_message = 'orange'
     passive_color = 'black'
     
-    traj_filename = f"{method.lower()}_K{k}_row{row}_dir{int(directed_transmission)}_jam{int(jammer_on)}_trajectory.csv"
-    traj_file_path = os.path.join(traj_dir, traj_filename)
+    if method == "Baseline":
+        traj_filename = f"{method.lower()}_K{k}_row{row}_dir{int(directed_transmission)}_jam{int(jammer_on)}_trajectory.csv"
+        if not os.path.exists(traj_file_path):
+            print(f"Trajectory file not found: {traj_file_path}")
+            return
     
-    if not os.path.exists(traj_file_path):
-        print(f"Trajectory file not found: {traj_file_path}")
-        return
+        traj_data = pd.read_csv(traj_file_path)
+        print(f"Loaded trajectory from {traj_file_path}")
+        print(f"Trajectory length: {len(traj_data)} time steps")
+
+    elif method == "MAPPO":
+        traj_filename = f"MAPPO_evaluation_results_K{k}_cpos{0.5}_cphi{0.1}_n{10000}_dir{int(bool(directed_transmission))}_jam{int(bool(jammer_on))}"
+        traj_file_path = os.path.join(traj_dir, traj_filename)
+
+        episodes_dict = read_runs(traj_file_path)
+        full_df = convert_dicts_to_df(episodes_dict)
+        traj_data = select_episode(full_df, row)
     
-    traj_data = pd.read_csv(traj_file_path)
-    print(f"Loaded trajectory from {traj_file_path}")
-    print(f"Trajectory length: {len(traj_data)} time steps")
     
     R = traj_data['R'].iloc[0] if 'R' in traj_data.columns else 10.0
     Ra = 0.6 * R
     
     marker_scale = max(0.3, 1.0 - (k - 1) * 0.03)  # Scales down from 1.0 to 0.3 as K increases
 
+    agent_id_range = range(1, k+1) if method=="Baseline" else range(0, k)
+
     # Get list of active agents
     active_agents = []
-    for agent_id in range(1, k+1):
+    for agent_id in agent_id_range:
         agent_col_has_message = f'agent{agent_id}_has_message'
         if np.any(traj_data[agent_col_has_message]):
             active_agents.append(agent_id)
     
     # Precompute agent passive status
     agent_passive_status = {}
-    for agent_id in range(1, k+1):
+    for agent_id in agent_id_range:
         agent_col_x = f'agent{agent_id}_x'
         agent_col_y = f'agent{agent_id}_y'
         
@@ -1888,7 +1898,7 @@ def animate_trajectory(traj_dir, k, row, directed_transmission, jammer_on, metho
         tx_range_label_added = True
         
         # Draw trajectory paths (dynamic)
-        for agent_id in range(1, k+1):
+        for agent_id in agent_id_range:
             agent_col_x = f'agent{agent_id}_x'
             agent_col_y = f'agent{agent_id}_y'
             agent_col_phi = f'agent{agent_id}_phi'
@@ -2051,26 +2061,18 @@ def main():
 
     eval_mode = 16
 
-    eval_K = [5]
-
-    value_remove_below = -10  
-    value_remove_above = 20
+    eval_K = [3,5,7,9]
+    
+    value_remove_below = 0
+    value_remove_above = 11
     time_remove_below = -0  
-    time_remove_above = 65 
+    time_remove_above = 60 
     dist_remove_below = 0  
-    dist_remove_above = 100 
-    """
-    value_remove_below = -3  
-    value_remove_above = 25
-    time_remove_below = -0  
-    time_remove_above = 65 
-    dist_remove_below = 0  
-    dist_remove_above = 40 
-    """
+    dist_remove_above = 50
 
     # Configuration
-    K_start = 10
-    K_end = 10
+    K_start = 6
+    K_end = 9
     K = range(K_start, K_end+1)
     row_start = 1  
     row_end = 10000  # Specify the range of rows to evaluate
@@ -2078,15 +2080,15 @@ def main():
     c_pos = 0.5 #[0.5, 1]  # motion cost parameter
     c_phi = 0.1  # antenna cost parameter
     
-    directed_transmission = False 
+    directed_transmission = False
     jammer_on = False
     clustering_on = True 
     minimize_distance = False  # minimize total movement instead of fasted delivery time
     
-    method = "Baseline"  # Baseline or MADDPG or MAPPO
+    method = "MAPPO"  # Baseline or MADDPG or MAPPO
     
     present_mode = "violin"  # hist ; violin
-    compare_mode = "violin"  # hist ; scatter ; heatmap; violin
+    compare_mode = "heatmap"  # hist ; scatter ; heatmap; violin
 
     # Configuration string for saving/loading
     conf_string = get_config_string(directed_transmission, jammer_on, c_pos=c_pos, c_phi=c_phi)
@@ -2475,37 +2477,50 @@ def main():
     
     elif eval_mode == 13:  # Plot trajectory (takes trajectory file)
 
-        k = 3
-        row = 2
+        k = 5
+        row = 2 #equal to which episode to check out (look at 20,40,60,... in MAPPO)
         #jammer_on=False
-        method = "Baseline"  # Baseline or MADDPG or MAPPO
+        method = "MAPPO"  # Baseline or MADDPG or MAPPO
         force_gen_traj = True
 
         plot_dir = os.path.join(plot_dir, "Trajectories", f"{conf_string}", f"{method}")
 
         # Construct trajectory file name to check if it exists
-        traj_filename = f"{method.lower()}_K{k}_row{row}_dir{int(directed_transmission)}_jam{int(jammer_on)}_trajectory.csv"
-        traj_file_path = os.path.join(traj_dir, traj_filename)
-        
-        # If trajectory doesn't exist and method is Baseline, generate it
-        if not os.path.exists(traj_file_path) or force_gen_traj:
-            print(f"Trajectory file not found: {traj_file_path}")
-            if method.lower() == "baseline":
-                print(f"Generating baseline trajectory...")
-                generate_baseline_trajectory(k, row, data_dir, c_pos, c_phi, 
+        if method == "Basline":
+            traj_filename = f"{method.lower()}_K{k}_row{row}_dir{int(directed_transmission)}_jam{int(jammer_on)}_trajectory.csv"
+            traj_file_path = os.path.join(traj_dir, traj_filename)
+            # If trajectory doesn't exist and method is Baseline, generate it
+            if not os.path.exists(traj_file_path) or force_gen_traj:
+                print(f"Trajectory file not found: {traj_file_path}")
+                if method.lower() == "baseline":
+                    print(f"Generating baseline trajectory...")
+                    generate_baseline_trajectory(k, row, data_dir, c_pos, c_phi, 
                                             directed_transmission=directed_transmission, 
                                             jammer_on=jammer_on, 
                                             testing=testing)
-            else:
-                print(f"Trajectory file not found and method is not Baseline. Cannot generate.")
+                else:
+                    print(f"Trajectory file not found and method is not Baseline. Cannot generate.")
+                
+            plot_trajectory(traj_dir, k, row, directed_transmission, jammer_on, method=method, plot_dir=plot_dir)
+
+        elif method == "MAPPO":
+            traj_filename = f"Rotation8_MAPPO_evaluation_results_K{k}_cpos{c_pos}_cphi{c_phi}_n{row_end}_dir{int(bool(directed_transmission))}_jam{int(bool(jammer_on))}"
+            traj_file_path = os.path.join(traj_dir, traj_filename)
+            
+            episodes_dict = read_runs(traj_file_path)
+            traj_dir = episodes_dict[row]
+
+            plot_trajectory(traj_dir, k, row, directed_transmission, jammer_on, method=method, plot_dir=plot_dir)
+            
+        else:
+            raise NotImplementedError("MADDPG not in yet but probably the same as mappo")
         
         # Plot the trajectory
-        plot_trajectory(traj_dir, k, row, directed_transmission, jammer_on, method=method, plot_dir=plot_dir)
     
     elif eval_mode == 14:  # Animate trajectory (takes trajectory file)
 
-        k = 3
-        row = 1
+        k = 5
+        row = 60 #equal to which episode to check out (look at 20,40,60,... in MAPPO)
         #directed_transmission = False
         force_gen_traj = True
 
@@ -2599,7 +2614,7 @@ def main():
         # File handling
         plot_dir = f"Media/Figures/Heatmaps/{conf_string}"
         load_string = "test" if testing else "evaluation"
-        extra_string = "Noisy_"  # "" if nothing extra
+        extra_string = "" # "Noisy_"  # "" if nothing extra
         keep_sup_title = True
         
         # ===== SELECT WHICH METHODS TO COMPARE =====
@@ -3513,18 +3528,18 @@ def main():
         k = 5  
         
         # Method names for labels  (Baseline, MADDPG, MAPPO)
-        method1 = "MAPPO"
+        method1 = "Basline"
         method2 = "MAPPO"
-        compare_mode = "hist"
+        compare_mode = "heatmap"
         
         # File 1 - specify the full path
-        #eval_file1 = os.path.join(result_dir, "Baseline", f"baseline_evaluation_results_K{k}_cpos{c_pos}_cphi{c_phi}_n{row_end}_dir{int(bool(directed_transmission))}_jam{int(bool(jammer_on))}.csv")
-        eval_file1_name = f"MAPPO_evaluation_results_K{k}_cpos{c_pos}_cphi{c_phi}_n{row_end}_dir{int(bool(directed_transmission))}_jam{int(bool(jammer_on))}.csv"
-        eval_file1 = os.path.join(result_dir, f"{method1}", f"{eval_file1_name}")
+        eval_file1 = os.path.join(result_dir, "Baseline", f"baseline_evaluation_results_K{k}_cpos{c_pos}_cphi{c_phi}_n{row_end}_dir{int(bool(directed_transmission))}_jam{int(bool(jammer_on))}.csv")
+        #eval_file1_name = f"MAPPO_evaluation_results_K{k}_cpos{c_pos}_cphi{c_phi}_n{row_end}_dir{int(bool(directed_transmission))}_jam{int(bool(jammer_on))}.csv"
+        #eval_file1 = os.path.join(result_dir, f"{method1}", f"{eval_file1_name}")
 
         # File 2 - specify the full path (example: MAPPO results)
         #eval_file2 = os.path.join(result_dir, "MAPPO", f"Noisy_MAPPO_evaluation_results_K{k}_cpos{c_pos}_cphi{c_phi}_n{row_end}_dir{int(bool(directed_transmission))}_jam{int(bool(jammer_on))}.csv")
-        eval_file2_name = f"Noisy_MAPPO_evaluation_results_K{k}_cpos{c_pos}_cphi{c_phi}_n{row_end}_dir{int(bool(directed_transmission))}_jam{int(bool(jammer_on))}.csv"
+        eval_file2_name = f"Rotation16_MAPPO_evaluation_results_K{k}_cpos{c_pos}_cphi{c_phi}_n{row_end}_dir{int(bool(directed_transmission))}_jam{int(bool(jammer_on))}.csv"
         eval_file2 = os.path.join(result_dir, f"{method2}", f"{eval_file2_name}")
 
         
@@ -3571,7 +3586,7 @@ def main():
             differences.append(diff_dict)
         
         # Create comparison plots based on compare_mode
-        compare_plot_dir = os.path.join(plot_dir, "Histograms", f"{conf_string}")
+        compare_plot_dir = os.path.join(plot_dir, "Histograms", f"32directions_{conf_string}")
         
         if compare_mode == "hist":
             print(f"\nGenerating histogram comparison...")
