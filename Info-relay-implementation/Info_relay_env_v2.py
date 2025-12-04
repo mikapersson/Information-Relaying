@@ -74,7 +74,7 @@ class Info_relay_env(ParallelEnv):
         #    num_CL_episodes = 0
         #    num_r_help_episodes = 0
 
-        max_cycles = 1.5 * ( (1.1 * (num_agents + 4) + 2) * 5 + num_agents )
+        max_cycles = round(1.5 * ( (1.1 * (num_agents + 4) + 2) * 5 + num_agents ))
         print("MAX CYCLES : ", max_cycles)
         
         #super().__init__()
@@ -119,7 +119,8 @@ class Info_relay_env(ParallelEnv):
         self.antenna_used = antenna_used #OBS ändra när antennen ska styras igen
         self.pre_determined_scenario = pre_determined_scenario
         if self.pre_determined_scenario:
-            self.eval_state_file = f"initial_state_pool/evaluation_states_K{self.n_agents}_n10000.csv"
+            #self.eval_state_file = f"initial_state_pool/evaluation_states_K{self.n_agents}_n10000.csv"
+            self.eval_state_file = f"Testing/Test_states/test_states_K{self.n_agents}_n10000.csv"
             self.evaluation_logger = EvaluationLogger(self.antenna_used, self.num_emitters, self.n_agents, self.eval_state_file, f"MAPPO_evaluation_results_K{self.n_agents}_cpos0.5_cphi0.1_n10000_dir{int(self.antenna_used)}_jam{self.num_emitters}.csv")
             self.pre_loaded_scenarios = []
             self.scenario_index_counter = 0
