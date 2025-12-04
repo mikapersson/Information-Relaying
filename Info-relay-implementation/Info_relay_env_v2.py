@@ -74,7 +74,6 @@ class Info_relay_env(ParallelEnv):
         #    num_CL_episodes = 0
         #    num_r_help_episodes = 0
         
-
         #super().__init__()
         self.render_mode = render_mode
         pygame.init()
@@ -1004,6 +1003,9 @@ class Info_relay_env(ParallelEnv):
 
         self.check_base_com()
 
+        # Copy to get snapshot
+        agents_copy = copy.deepcopy(self.world.agents)
+
         for agent in self.world.agents:
             if agent.message_buffer: # if the agent already has the message
                 continue
@@ -1025,7 +1027,7 @@ class Info_relay_env(ParallelEnv):
             if recieved_message: # do not check agents if message recieved from base
                 continue
 
-            for other in self.world.agents: # the agents are always transmitting
+            for other in agents_copy: # the agents are always transmitting
                 if other.name == agent.name:
                     continue
                 if other.message_buffer and not agent.message_buffer:
@@ -1040,7 +1042,7 @@ class Info_relay_env(ParallelEnv):
                         continue
 
         for base in self.world.bases: # maybe remove loop - only look at the 2nd base
-            for agent in self.world.agents:
+            for agent in agents_copy:
                 if agent.message_buffer and base.state.c != 1:
                     SNR = self.calculate_SNR(base, agent, self.world.emitters)
                     if self.check_signal_detection(SNR):
