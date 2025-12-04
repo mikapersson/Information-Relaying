@@ -73,6 +73,9 @@ class Info_relay_env(ParallelEnv):
         #if evaluating: # if evaluating is run turn of all help - not automatic yet
         #    num_CL_episodes = 0
         #    num_r_help_episodes = 0
+
+        max_cycles = 1.5 * ( (1.1 * (num_agents + 4) + 2) * 5 + num_agents )
+        print("MAX CYCLES : ", max_cycles)
         
         #super().__init__()
         self.render_mode = render_mode
@@ -1004,7 +1007,7 @@ class Info_relay_env(ParallelEnv):
         self.check_base_com()
 
         # Copy to get snapshot
-        agents_copy = copy.deepcopy(self.world.agents)
+        agents_copy = deepcopy(self.world.agents)
 
         for agent in self.world.agents:
             if agent.message_buffer: # if the agent already has the message
