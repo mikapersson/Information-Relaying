@@ -466,6 +466,15 @@ def plot_comparison_heatmap(results1, results2, method1, method2, plot_dir=None,
     ]
     
     fig, axes = plt.subplots(1, 3, figsize=(16, 5))
+
+    # Add new top annotation text
+    fig.text(
+        0.5, 0.96,
+        fr"${k}$ agents — isotropic communication",
+        fontsize=13,
+        ha='center',
+        va='top'
+    )
     
     for i, (key, title, xlabel) in enumerate(metrics):
         values1 = np.array([r[key] for r in results1 if key in r])
@@ -1146,13 +1155,14 @@ def plot_comparison_heatmap_all(comparisons, eval_K, plot_dir=None, methods_str=
             min_val, max_val = global_limits[key]
 
             # consistent bins
-            n_bins = 60
+            n_bins = 50
             bins = np.linspace(min_val, max_val, n_bins)
 
             # ------------------------------------------
-            # Compute heatmaps for each K (per comparison)
+            # Compute global max count across all Ks (per comparison)
             # ------------------------------------------
             heatmaps_by_k = {}
+            global_max = 0
 
             for k in eval_K:
                 if k in results1_dict and k in results2_dict:
@@ -1173,17 +1183,19 @@ def plot_comparison_heatmap_all(comparisons, eval_K, plot_dir=None, methods_str=
                             H[yi, xi] += 1
 
                     heatmaps_by_k[k] = H
+                    global_max = max(global_max, H.max())
+
+            global_max = max(global_max, 1)  # avoid divide-by-zero
 
             # ------------------------------------------
-            # Plot each K's normalized heatmap (normalized per K)
+            # Plot each K's normalized heatmap
             # ------------------------------------------
             for k_idx, k in enumerate(eval_K):
                 if k not in heatmaps_by_k:
                     continue
 
                 H = heatmaps_by_k[k]
-                k_max = max(H.max(), 1)  # Per-K normalization
-                H_norm = H / k_max
+                H_norm = H / global_max
 
                 # mask low intensities → white
                 H_mask = np.ma.masked_less(H_norm, threshold)
@@ -1566,7 +1578,7 @@ def plot_trajectory(traj_dir, k, row, directed_transmission, jammer_on, method="
                           linewidth=2, color=agent_color, marker='o', zorder=11)
                 
                 # Plot Rcom circle around final position ONLY for Baseline method
-                if method.lower() == "baseline" and not directed_transmission:
+                if (method.lower() == "baseline" or method == "MAPPO") and not directed_transmission:
                     if not jammer_on:  # isotropic, no jammer
                         Rcom_k = Rcom
                     elif jammer_on:  # isotropic, jammer (directed handled below)
@@ -1954,7 +1966,7 @@ def animate_trajectory(traj_dir, k, row, directed_transmission, jammer_on, metho
                         marker='o', label=agent_label, zorder=4)
                 
                 # Plot Rcom circle for baseline method (only if not directed transmission)
-                if method.lower() == "baseline" and not directed_transmission:
+                if (method.lower() == "baseline" or method == "MAPPO") and not directed_transmission:
                     if jammer_on and p_jammer is not None:
                         Rcom_k = communication_range(theta=0, phi=0, C_dir=0.0, SINR_threshold=1.0, 
                                             jammer_pos=p_jammer, p_tx=np.array([x_coords[-1], y_coords[-1]]))
@@ -2059,20 +2071,27 @@ def main():
     
     testing = False  # are we running on test data? (FINAL DATA) False -> Evaluation data
 
-    eval_mode = 16
+    eval_mode = 24
 
-    eval_K = [3,5,7,9]
-    
-    value_remove_below = 0
-    value_remove_above = 11
+    eval_K = [1]
+    """
+    value_remove_below = -10  
+    value_remove_above = 20
     time_remove_below = -0  
-    time_remove_above = 60 
+    time_remove_above = 65 
     dist_remove_below = 0  
-    dist_remove_above = 50
+    dist_remove_above = 100 
+    """
+    value_remove_below = -3  
+    value_remove_above = 25
+    time_remove_below = -0  
+    time_remove_above = 65 
+    dist_remove_below = 0  
+    dist_remove_above = 40 
 
     # Configuration
-    K_start = 6
-    K_end = 9
+    K_start = 10
+    K_end = 10
     K = range(K_start, K_end+1)
     row_start = 1  
     row_end = 10000  # Specify the range of rows to evaluate
@@ -2087,7 +2106,7 @@ def main():
     
     method = "MAPPO"  # Baseline or MADDPG or MAPPO
     
-    present_mode = "violin"  # hist ; violin
+    present_mode = "hist"  # hist ; violin
     compare_mode = "heatmap"  # hist ; scatter ; heatmap; violin
 
     # Configuration string for saving/loading
@@ -2520,7 +2539,7 @@ def main():
     elif eval_mode == 14:  # Animate trajectory (takes trajectory file)
 
         k = 5
-        row = 60 #equal to which episode to check out (look at 20,40,60,... in MAPPO)
+        row = 140 #equal to which episode to check out (look at 20,40,60,... in MAPPO)
         #directed_transmission = False
         force_gen_traj = True
 
@@ -2614,11 +2633,11 @@ def main():
         # File handling
         plot_dir = f"Media/Figures/Heatmaps/{conf_string}"
         load_string = "test" if testing else "evaluation"
-        extra_string = "" # "Noisy_"  # "" if nothing extra
+        extra_string = "Noisy_"  # "" if nothing extra
         keep_sup_title = True
         
         # ===== SELECT WHICH METHODS TO COMPARE =====
-        methods_to_compare = ["baseline",  "MADDPG", "MAPPO"]  # Choose subset: e.g., ["baseline", "MADDPG"]
+        methods_to_compare = ["baseline",  "MAPPO"]  # Choose subset: e.g., ["baseline", "MADDPG"]
         # Other options:
         # methods_to_compare = ["baseline", "MADDPG"]
         # methods_to_compare = ["baseline", "MAPPO"]
@@ -3525,7 +3544,7 @@ def main():
         Specify the full file paths and comparison mode.
         """
         # Specify the two files to compare
-        k = 5  
+        k = 9
         
         # Method names for labels  (Baseline, MADDPG, MAPPO)
         method1 = "Basline"
@@ -3539,7 +3558,7 @@ def main():
 
         # File 2 - specify the full path (example: MAPPO results)
         #eval_file2 = os.path.join(result_dir, "MAPPO", f"Noisy_MAPPO_evaluation_results_K{k}_cpos{c_pos}_cphi{c_phi}_n{row_end}_dir{int(bool(directed_transmission))}_jam{int(bool(jammer_on))}.csv")
-        eval_file2_name = f"Rotation16_MAPPO_evaluation_results_K{k}_cpos{c_pos}_cphi{c_phi}_n{row_end}_dir{int(bool(directed_transmission))}_jam{int(bool(jammer_on))}.csv"
+        eval_file2_name = f"MAPPO_evaluation_results_K{k}_cpos{c_pos}_cphi{c_phi}_n{row_end}_dir{int(bool(directed_transmission))}_jam{int(bool(jammer_on))}.csv"
         eval_file2 = os.path.join(result_dir, f"{method2}", f"{eval_file2_name}")
 
         
@@ -3586,7 +3605,7 @@ def main():
             differences.append(diff_dict)
         
         # Create comparison plots based on compare_mode
-        compare_plot_dir = os.path.join(plot_dir, "Histograms", f"32directions_{conf_string}")
+        compare_plot_dir = os.path.join(plot_dir, "Histograms", f"{conf_string}")
         
         if compare_mode == "hist":
             print(f"\nGenerating histogram comparison...")
