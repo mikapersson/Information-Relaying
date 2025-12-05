@@ -913,7 +913,7 @@ class Info_relay_env(ParallelEnv):
                         phi_current = phi_traj_k[t]
                         phi_next = phi_traj_k[t + 1]
 
-                        if (phi_current is not None and phi_next is not None):
+                        if (phi_current is not None and phi_next is not None and not np.isclose(phi_current, phi_next, atol=1e-6)):
                             # Since we look at the phi diff here, we don't know which direction
                             # the antenna moved. Let's be content with picking the shortest
                             # direction for now.
