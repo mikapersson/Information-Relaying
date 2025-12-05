@@ -192,7 +192,7 @@ def compare_value_functions_3d():
             ax.legend(handles=[proxy_passive]+proxy_actives+[proxy_contour], loc='upper right')
 
         plt.tight_layout()    
-        plt.savefig("Plots\\Cost_parameter\\10nov\\motion_antenna_cost_compare_{}_agents.png".format(K), dpi=1000, bbox_inches="tight")
+        plt.savefig("Media\\Figures\\motion_antenna_cost_compare_{}_agents.png".format(K), dpi=1000, bbox_inches="tight")
         print("Plot saved for K={}".format(K))
         #plt.show()
 

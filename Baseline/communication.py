@@ -653,6 +653,11 @@ def plot_communication_range_comparison(save_plot=False, SINR_threshold=1.0, phi
         legend_fontsize (float): Font size for legend text
     """
     
+    # Enable LaTeX rendering for all text
+    plt.rcParams['text.usetex'] = True
+    plt.rcParams['font.family'] = 'serif'
+    plt.rcParams['font.serif'] = ['Computer Modern']
+    
     # Setup
     p_tx = np.array([0, 0])  # Transmitter at origin
     
@@ -699,7 +704,7 @@ def plot_communication_range_comparison(save_plot=False, SINR_threshold=1.0, phi
     range_y_dir_with_jam = p_tx[1] + np.array(ranges_dir_with_jam) * np.sin(actual_angles_dir)
     
     # Create figure
-    plt.figure(figsize=(27, 12))
+    plt.figure(figsize=(19, 9))
     
     # Fix matplotlib deprecation warning - use new colormap access method
     colors = [plt.colormaps['viridis'](i) for i in [0.0, 0.33, 0.66, 1.0]]  # 4 evenly spaced colors
@@ -730,10 +735,11 @@ def plot_communication_range_comparison(save_plot=False, SINR_threshold=1.0, phi
     # Plot receiving agent - using custom marker size
     receiver_color = 'black'
     transmitter_color = 'black'
-    plt.plot(p_rec[0], p_rec[1], 'o', color=receiver_color, markersize=marker_size, zorder=6)
+    ax = plt.gca()
+    ax.scatter(p_rec[0], p_rec[1], s=marker_size**2, marker='o', color=receiver_color, label='Agent/Base', zorder=6)
     
-    # Plot transmitter (changed to blue) - using custom marker size
-    plt.plot(p_tx[0], p_tx[1], 'o', color=transmitter_color, markersize=marker_size, zorder=6)
+    # Plot transmitter - using custom marker size
+    ax.scatter(p_tx[0], p_tx[1], s=marker_size**2, marker='o', color=transmitter_color, zorder=6)
     
     # Draw local x and y axes through transmitter
     axis_length = 1.1
@@ -745,7 +751,11 @@ def plot_communication_range_comparison(save_plot=False, SINR_threshold=1.0, phi
     plt.plot([p_tx[0], p_rec[0]], [p_tx[1], p_rec[1]], '-', color=receiver_color, linewidth=linewidth, zorder=4)
     
     # Plot jammer - using custom marker size
-    plt.plot(jammer_pos[0], jammer_pos[1], 'ro', markersize=marker_size, zorder=6)
+    marker_scale = 800.0  # Default marker scale
+    jammer_pos_label = 'Jammer'
+    ax = plt.gca()
+    ax.scatter(jammer_pos[0], jammer_pos[1], s=marker_scale, marker='^', 
+                          color='red', alpha=0.8, edgecolors='darkred', linewidth=3, label=jammer_pos_label, zorder=6)
     
     # Draw antenna orientation (phi) - using custom linewidth
     max_range_overall = max(max(ranges_dir_no_jam), max(ranges_dir_with_jam), 
@@ -796,9 +806,9 @@ def plot_communication_range_comparison(save_plot=False, SINR_threshold=1.0, phi
 
     # Labels and annotations - using custom symbol fontsize
     text_label_gap = 0.08
-    plt.text(p_rec[0] + 1.4*text_label_gap, p_rec[1] , rf'$p_{{\text{{r}}}}$', fontsize=symbol_fontsize, ha='left')
-    plt.text(p_tx[0] - 2*text_label_gap, p_tx[1] - 2*text_label_gap, rf'$p_{{\text{{t}}}}$', fontsize=symbol_fontsize, ha='left')
-    plt.text(jammer_pos[0] - 2*text_label_gap, jammer_pos[1] - 2*text_label_gap, rf'$p_{{\text{{j}}}}$', fontsize=symbol_fontsize, ha='left')
+    plt.text(p_rec[0] + 1.4*text_label_gap, p_rec[1] , rf'$p_{{r}}$', fontsize=symbol_fontsize, ha='left')
+    plt.text(p_tx[0] - 2*text_label_gap, p_tx[1] - 2*text_label_gap, rf'$p_{{t}}$', fontsize=symbol_fontsize, ha='left')
+    plt.text(jammer_pos[0] - 2*text_label_gap, jammer_pos[1] - 2*text_label_gap, rf'$p_{{\mathsf{{j}}}}$', fontsize=symbol_fontsize, ha='left')
 
     
     # Conditional text boxes
@@ -815,7 +825,7 @@ def plot_communication_range_comparison(save_plot=False, SINR_threshold=1.0, phi
         
         # Add formulas in text box (moved to right)
         formula_text = (r'$R(\theta) = \sqrt{\frac{|a(0)^H a(\theta)|}{SINR_0(1+C_{jam}\|p_{rec}-p_{jam}\|^{-2})}}$' + '\n' +
-                       r'Isotropic: $\theta \in [-\pi, \pi]$, Directed: $\theta \in [-\pi/2, \pi/2]$')
+                       r'Isotropic: $\theta \in [-\pi, \pi]$, Directectional: $\theta \in [-\pi/2, \pi/2]$')
         
         plt.text(0.75, 0.98, formula_text, transform=plt.gca().transAxes, fontsize=10, 
                  bbox=dict(boxstyle="round,pad=0.5", facecolor="lightyellow", alpha=0.9),
@@ -882,7 +892,8 @@ def plot_communication_range_comparison(save_plot=False, SINR_threshold=1.0, phi
         for key, (directed, jammed) in label_mapping.items():
             if key in label:
                 new_handles.append(Patch(color=handle.get_facecolor(), alpha=legend_alpha))
-                new_labels.append(f'{directed:3s} | {jammed:3s}')  # Use fixed width for alignment
+                # Use LaTeX makebox for fixed-width alignment while preserving font
+                new_labels.append(fr'$\makebox[1.5em][l]{{{directed}}}$ $|$ $\makebox[1.5em][l]{{{jammed}}}$')
                 found = True
                 break
         
@@ -893,7 +904,7 @@ def plot_communication_range_comparison(save_plot=False, SINR_threshold=1.0, phi
 
     # Create legend with title using custom legend fontsize
     legend = plt.legend(new_handles, new_labels, loc='center left', 
-                    title='Directed | Jammed',
+                    title=r'             $\textbf{Scenario:}$' + '\n    Directional $|$ Jammed',
                     title_fontsize=legend_fontsize,
                     frameon=False, fontsize=legend_fontsize)
 
@@ -1179,8 +1190,8 @@ if __name__ == "__main__":
         jammer_angle_from_receiver=-np.pi/3,
         include_text_boxes=False,
         save_plot=True,
-        marker_size=30,        # Larger markers
-        symbol_fontsize=45,    # Larger symbols (φ, θ, p_t, p_r)
+        marker_size=25,        # Larger markers
+        symbol_fontsize=40,    # Larger symbols (φ, θ, p_t, p_r)
         linewidth=6,           # Thicker lines
         legend_fontsize=40     
     )
