@@ -4898,133 +4898,357 @@ def main():
                                    jammer_on=jammer_on, testing=testing, conf_string=conf_string,
                                    c_pos=c_pos, c_phi=c_phi, result_dir=result_dir)
     
-    elif eval_mode == 29:  # Plot baseline and MAPPO trajectories for all scenarios except isotropic non-jammed
+    elif eval_mode == 29:  # Plot baseline and MAPPO trajectories for 3 scenarios
         """
-        Plot trajectory comparison for all scenarios (except isotropic non-jammed) between baseline and MAPPO.
-        Creates a single figure with 3 rows (scenarios) and n_rows columns (one per row value).
+        Create comparison plots for 3 scenarios side-by-side: baseline vs MAPPO.
+        Simple, clean layout following eval_mode 21's architecture.
         """
         import matplotlib.pyplot as plt
         import matplotlib.patches as patches
         
         k = 7
-        rows_to_plot = [80, 520]  # Which episodes to plot as columns
-        methods_to_compare = ["baseline", "MAPPO"]
-        result_string = "test" if testing else "evaluation"
+        row = 520  # episode number
         
-        # All scenarios except isotropic non-jammed (directed=False, jammer=False)
+        sns.set_style("whitegrid")
+        sns.set_palette("husl")
+        
+        plt.rcParams['text.usetex'] = True
+        plt.rcParams['font.family'] = 'serif'
+        plt.rcParams['font.serif'] = ['Computer Modern']
+        plt.rcParams['axes.labelsize'] = 12
+        plt.rcParams['xtick.labelsize'] = 10
+        plt.rcParams['ytick.labelsize'] = 10
+        plt.rcParams['legend.fontsize'] = 11
+        plt.rcParams['figure.titlesize'] = 14
+        
+        # Define scenarios (excluding isotropic non-jammed)
         scenarios = [
-            (False, True),   # isotropic + jammer
-            (True, False),   # directed + no jammer
-            (True, True),    # directed + jammer
+            (False, True, "Isotropic + Jammer"),      # isotropic + jammer
+            (True, False, "Directed, No Jammer"),     # directed + no jammer
+            (True, True, "Directed + Jammer"),        # directed + jammer
         ]
         
-        scenario_labels = [
-            "Isotropic + Jammer",
-            "Directed, No Jammer",
-            "Directed + Jammer"
+        Rcom = 1.0
+        agent_color = 'orange'
+        passive_color = 'black'
+        marker_scale = max(0.3, 1.0 - (k - 1) * 0.03)
+        
+        # Create figure: 3 rows x 2 columns (baseline, MAPPO)
+        fig, axes = plt.subplots(3, 2, figsize=(12, 13))
+        
+        # First pass: collect all coordinates for common axis limits
+        all_x_coords = []
+        all_y_coords = []
+        R_common = 10.0
+        
+        for directed_tx, jammer_on, _ in scenarios:
+            conf_string = get_config_string(directed_tx, jammer_on, c_pos, c_phi)
+            
+            # Load baseline
+            baseline_dir = os.path.join("Evaluation/Trajectories", conf_string, "Baseline")
+            baseline_file = os.path.join(baseline_dir, f"baseline_K{k}_row{row}_dir{int(directed_tx)}_jam{int(jammer_on)}_trajectory.csv")
+            
+            if not os.path.exists(baseline_file):
+                generate_baseline_trajectory(k, row, data_dir, c_pos, c_phi, directed_tx, jammer_on, testing)
+            
+            try:
+                traj = pd.read_csv(baseline_file)
+                R_common = traj['R'].iloc[0] if 'R' in traj.columns else 10.0
+                for agent_id in range(1, k+1):
+                    col_x = f'agent{agent_id}_x'
+                    col_y = f'agent{agent_id}_y'
+                    if col_x in traj.columns:
+                        all_x_coords.extend(traj[col_x].dropna().values)
+                        all_y_coords.extend(traj[col_y].dropna().values)
+                if 'jammer_x' in traj.columns:
+                    all_x_coords.extend(traj['jammer_x'].dropna().values)
+                    all_y_coords.extend(traj['jammer_y'].dropna().values)
+            except:
+                pass
+        
+        # Compute common axis limits (same as eval_mode 21)
+        Ra = 0.6 * R_common
+        cap_radius = 1.5 * Rcom
+        cap_height = 3 * Rcom
+        x_min = -cap_radius - 0.1 * Rcom
+        x_max = R_common + cap_radius + 0.1 * Rcom
+        y_min = -0.65 * Ra
+        y_max = 0.8 * Ra
+        
+        # Helper function to plot a scenario
+        def _plot_scenario(ax, traj, k, R, directed_tx, jammer_on, Rcom, method_name, agent_color, passive_color, mappo_mode=False):
+            """Plot trajectory for one scenario using eval_mode 21 logic."""
+            # Determine agent indexing
+            agent_range = range(0, k) if mappo_mode else range(1, k+1)
+            
+            # Get active agents
+            active_agents = []
+            for agent_id in agent_range:
+                agent_col_has_message = f'agent{agent_id}_has_message'
+                if agent_col_has_message in traj.columns and np.any(traj[agent_col_has_message]):
+                    active_agents.append(agent_id)
+            
+            # Compute transmitter Rcom considering jammer (if active)
+            if jammer_on:
+                t_retrieve = len(traj) - 1
+                for agent_k in agent_range:
+                    agent_col_has_message = f'agent{agent_k}_has_message'
+                    if agent_col_has_message in traj.columns:
+                        msg_array = traj[agent_col_has_message].values
+                        true_indices = np.where(msg_array)[0]
+                        if len(true_indices) > 0:
+                            t_retrieve = min(t_retrieve, true_indices[0])
+                t_retrieve = max(0, t_retrieve - 1)
+                
+                jammer_x = traj['jammer_x'].iloc[t_retrieve] if 'jammer_x' in traj.columns else R/2
+                jammer_y = traj['jammer_y'].iloc[t_retrieve] if 'jammer_y' in traj.columns else 0.0
+                p_jammer = np.array([jammer_x, jammer_y])
+                
+                Rcom_tx = communication_range(theta=0, phi=0, C_dir=0.0, SINR_threshold=1.0, 
+                                            jammer_pos=p_jammer, p_tx=np.array([0, 0]))
+            else:
+                Rcom_tx = Rcom
+                p_jammer = None
+            
+            # Plot transmitter communication range circle with fill
+            tx_circle_fill = patches.Circle((0, 0), radius=Rcom_tx, 
+                                        fill=True, facecolor='blue', alpha=0.25, linewidth=1.5, edgecolor='blue')
+            ax.add_patch(tx_circle_fill)
+            
+            # Plot jammer capsule if active
+            if jammer_on:
+                cap_height = 3 * Rcom
+                cap_radius = 1.5 * Rcom
+                ax.plot([0, R], [cap_height/2, cap_height/2], color='red', lw=2, alpha=0.4)
+                ax.plot([0, R], [-cap_height/2, -cap_height/2], color='red', lw=2, alpha=0.4)
+                theta_left = np.linspace(np.pi/2, 3*np.pi/2, 100)
+                ax.plot(cap_radius * np.cos(theta_left), cap_radius * np.sin(theta_left), 
+                    color='red', lw=2, alpha=0.4)
+                theta_right = np.linspace(-np.pi/2, np.pi/2, 100)
+                ax.plot(R + cap_radius * np.cos(theta_right), cap_radius * np.sin(theta_right), 
+                    color='red', lw=2, alpha=0.4)
+            
+            # Plot agent trajectories and communication ranges
+            for agent_id in agent_range:
+                col_x = f'agent{agent_id}_x'
+                col_y = f'agent{agent_id}_y'
+                col_phi = f'agent{agent_id}_phi'
+                agent_col_has_message = f'agent{agent_id}_has_message'
+                
+                if col_x not in traj.columns or col_y not in traj.columns:
+                    continue
+                
+                initial_x = traj[col_x].iloc[0]
+                initial_y = traj[col_y].iloc[0]
+                final_x = traj[col_x].iloc[-1]
+                final_y = traj[col_y].iloc[-1]
+                
+                is_passive = agent_id not in active_agents
+                if is_passive:
+                    # Passive agent: show initial position only
+                    ax.scatter(initial_x, initial_y, s=80*marker_scale, alpha=0.8, 
+                              edgecolors='darkgrey', linewidth=1.5*marker_scale, 
+                              color=passive_color, marker='o', zorder=4)
+                else:
+                    # Active agent: show trajectory with fading
+                    ax.scatter(initial_x, initial_y, s=60*marker_scale, alpha=0.5, 
+                              edgecolors='darkgrey', linewidth=1*marker_scale, 
+                              color='grey', marker='o', zorder=3)
+                    
+                    # Find message reception time
+                    t_receive_message = None
+                    if agent_col_has_message in traj.columns:
+                        msg_array = traj[agent_col_has_message].values
+                        true_indices = np.where(msg_array)[0]
+                        if len(true_indices) > 0:
+                            t_receive_message = true_indices[0]
+                    
+                    # Plot trajectory segments with fading
+                    x_coords = traj[col_x].values
+                    y_coords = traj[col_y].values
+                    t_max = len(x_coords) - 1
+                    
+                    for t in range(len(x_coords) - 1):
+                        if t_receive_message is not None and t >= t_receive_message:
+                            segment_color = agent_color
+                            alpha_val = 0.2 + 0.8 * (t / max(t_max, 1))
+                        else:
+                            segment_color = 'grey'
+                            alpha_val = 0.2
+                        
+                        ax.plot(x_coords[t:t+2], y_coords[t:t+2], 
+                               alpha=alpha_val, linewidth=2, linestyle='--', 
+                               color=segment_color, zorder=-1)
+                    
+                    # Plot final position
+                    ax.scatter(final_x, final_y, s=100*marker_scale, alpha=0.8, 
+                              edgecolors='darkorange', linewidth=2*marker_scale, 
+                              color=agent_color, marker='o', zorder=11)
+                    
+                    # Compute jammer position at agent's final time if jammer active
+                    if jammer_on:
+                        t_stop = len(traj) - 1
+                        for t in range(len(traj)-1, 0, -1):
+                            if (traj[col_x].iloc[t] != traj[col_x].iloc[t-1] or
+                                traj[col_y].iloc[t] != traj[col_y].iloc[t-1]):
+                                t_stop = t
+                                break
+                        jammer_x = traj['jammer_x'].iloc[t_stop] if 'jammer_x' in traj.columns else R/2
+                        jammer_y = traj['jammer_y'].iloc[t_stop] if 'jammer_y' in traj.columns else 0.0
+                        p_agent_jammer = np.array([jammer_x, jammer_y])
+                    else:
+                        p_agent_jammer = None
+                    
+                    # Plot communication radius at final position
+                    # Case 1: No directed, No jammer
+                    if not directed_tx and not jammer_on:
+                        Rcom_k = Rcom
+                        agent_rcom_circle_fill = patches.Circle((final_x, final_y), radius=Rcom_k, 
+                                                        color=agent_color, fill=True, 
+                                                        linewidth=0, alpha=0.25, zorder=2, facecolor=agent_color)
+                        ax.add_patch(agent_rcom_circle_fill)
+                        agent_rcom_circle_edge = patches.Circle((final_x, final_y), radius=Rcom_k, 
+                                                        color=agent_color, fill=False, 
+                                                        linewidth=2, alpha=0.7, zorder=2)
+                        ax.add_patch(agent_rcom_circle_edge)
+                    
+                    # Case 2: No directed, With jammer
+                    elif not directed_tx and jammer_on:
+                        Rcom_k = communication_range(theta=0, phi=0, C_dir=0.0, SINR_threshold=1.0, 
+                                            jammer_pos=p_agent_jammer, p_tx=np.array([final_x, final_y]))
+                        agent_rcom_circle_fill = patches.Circle((final_x, final_y), radius=Rcom_k, 
+                                                        color=agent_color, fill=True, 
+                                                        linewidth=0, alpha=0.25, zorder=2, facecolor=agent_color)
+                        ax.add_patch(agent_rcom_circle_fill)
+                        agent_rcom_circle_edge = patches.Circle((final_x, final_y), radius=Rcom_k, 
+                                                        color=agent_color, fill=False, 
+                                                        linewidth=2, alpha=0.7, zorder=2)
+                        ax.add_patch(agent_rcom_circle_edge)
+                    
+                    # Case 3 & 4: Directed transmission (with and without jammer)
+                    else:
+                        if col_phi in traj.columns:
+                            final_phi = traj[col_phi].iloc[-1]
+                            if jammer_on:
+                                plot_antenna_lobe(ax, np.array([final_x, final_y]), final_phi, Rcom, 
+                                                jammer_pos=p_agent_jammer, color=agent_color, fill=True)
+                            else:
+                                plot_antenna_lobe(ax, np.array([final_x, final_y]), final_phi, Rcom, 
+                                                color=agent_color, fill=True)
+            
+            # Plot transmitter at origin
+            ax.scatter(0, 0, s=200*marker_scale, marker='s', color='blue', 
+                      alpha=0.8, edgecolors='darkblue', linewidth=2*marker_scale, zorder=5)
+            
+            # Plot receiver
+            ax.scatter(R, 0, s=200*marker_scale, marker='s', color='green', 
+                      alpha=0.8, edgecolors='darkgreen', linewidth=2*marker_scale, zorder=5)
+            
+            # Plot jammer trajectory if present
+            if jammer_on and 'jammer_x' in traj.columns:
+                jammer_data = traj[['jammer_x', 'jammer_y']].dropna()
+                if len(jammer_data) > 0:
+                    jammer_x_coords = jammer_data['jammer_x'].values
+                    jammer_y_coords = jammer_data['jammer_y'].values
+                    
+                    jammer_t_max = len(jammer_x_coords) - 1
+                    for t in range(len(jammer_x_coords) - 1):
+                        alpha_val = 0.2 + 0.8 * (t / max(jammer_t_max, 1))
+                        ax.plot(jammer_x_coords[t:t+2], jammer_y_coords[t:t+2], 
+                               alpha=alpha_val, linewidth=1.5, linestyle='--', color='red', zorder=0)
+                    
+                    # Plot final jammer position
+                    final_jammer_x = jammer_x_coords[-1]
+                    final_jammer_y = jammer_y_coords[-1]
+                    ax.scatter(final_jammer_x, final_jammer_y, s=150*marker_scale, marker='^', 
+                              color='red', alpha=0.8, edgecolors='darkred', linewidth=1.5*marker_scale, zorder=10)
+        
+        # Second pass: plot all scenarios
+        for scenario_idx, (directed_tx, jammer_on, scenario_label) in enumerate(scenarios):
+            conf_string = get_config_string(directed_tx, jammer_on, c_pos, c_phi)
+            
+            # Plot baseline (left column)
+            ax_baseline = axes[scenario_idx, 0]
+            baseline_dir = os.path.join("Evaluation/Trajectories", conf_string, "Baseline")
+            baseline_file = os.path.join(baseline_dir, f"baseline_K{k}_row{row}_dir{int(directed_tx)}_jam{int(jammer_on)}_trajectory.csv")
+            
+            if os.path.exists(baseline_file):
+                try:
+                    traj = pd.read_csv(baseline_file)
+                    R = traj['R'].iloc[0] if 'R' in traj.columns else 10.0
+                    _plot_scenario(ax_baseline, traj, k, R, directed_tx, jammer_on, Rcom, "Baseline", agent_color, passive_color)
+                except:
+                    pass
+            
+            ax_baseline.set_xlim(x_min, x_max)
+            ax_baseline.set_ylim(y_min, y_max)
+            ax_baseline.set_aspect('equal')
+            ax_baseline.grid(False)
+            ax_baseline.set_xticks([])
+            ax_baseline.set_yticks([])
+            ax_baseline.spines['top'].set_visible(False)
+            ax_baseline.spines['right'].set_visible(False)
+            ax_baseline.spines['bottom'].set_visible(False)
+            ax_baseline.spines['left'].set_visible(False)
+            if scenario_idx == 0:
+                ax_baseline.set_title("Baseline", fontsize=12, fontweight='bold')
+            
+            # Plot MAPPO (right column)
+            ax_mappo = axes[scenario_idx, 1]
+            mappo_dir = os.path.join("Evaluation/Trajectories", conf_string, "MAPPO")
+            mappo_file = os.path.join(mappo_dir, f"MAPPO_evaluation_results_K{k}_cpos{0.5}_cphi{0.1}_n10000_dir{int(bool(directed_tx))}_jam{int(bool(jammer_on))}")
+            
+            try:
+                episodes_dict = read_runs(mappo_file)
+                full_df = convert_dicts_to_df(episodes_dict)
+                traj = select_episode(full_df, row)
+                R = traj['R'].iloc[0] if 'R' in traj.columns else 10.0
+                _plot_scenario(ax_mappo, traj, k, R, directed_tx, jammer_on, Rcom, "MAPPO", agent_color, passive_color, mappo_mode=True)
+            except:
+                pass
+            
+            ax_mappo.set_xlim(x_min, x_max)
+            ax_mappo.set_ylim(y_min, y_max)
+            ax_mappo.set_aspect('equal')
+            ax_mappo.grid(False)
+            ax_mappo.set_xticks([])
+            ax_mappo.set_yticks([])
+            ax_mappo.spines['top'].set_visible(False)
+            ax_mappo.spines['right'].set_visible(False)
+            ax_mappo.spines['bottom'].set_visible(False)
+            ax_mappo.spines['left'].set_visible(False)
+            if scenario_idx == 0:
+                ax_mappo.set_title("MAPPO", fontsize=12, fontweight='bold')
+        
+        # Create common legend
+        legend_handles = [
+            plt.Line2D([0], [0], marker='s', color='w', markerfacecolor='blue', 
+                      markeredgecolor='darkblue', markersize=10, label=r'Sender', markeredgewidth=1.5),
+            plt.Line2D([0], [0], marker='s', color='w', markerfacecolor='green', 
+                      markeredgecolor='darkgreen', markersize=10, label=r'Receiver', markeredgewidth=1.5),
+            plt.Line2D([0], [0], marker='o', color='w', markerfacecolor='orange', 
+                      markeredgecolor='darkorange', markersize=8, label=r'$\mathrm{Agent}$', markeredgewidth=1.5),
+            plt.Line2D([0], [0], marker='o', color='w', markerfacecolor='grey', 
+                      markeredgecolor='darkgrey', markersize=8, label=r'Agent init.', markeredgewidth=1.5),
+            plt.Line2D([0], [0], color='orange', linewidth=2, linestyle='--', label=r'Has message'),
+            plt.Line2D([0], [0], color='grey', linewidth=2, linestyle='--', label=r'No message'),
+            plt.Line2D([0], [0], marker='^', color='w', markerfacecolor='red', 
+                      markeredgecolor='darkred', markersize=8, label=r'Jammer', markeredgewidth=1.5),
+            plt.Line2D([0], [0], color='red', linewidth=2, alpha=0.4, label=r'Jammer capsule'),
         ]
         
-        n_rows = len(scenarios)
-        n_cols = len(rows_to_plot) * len(methods_to_compare)  # Each row has 2 methods
+        # Add common legend at bottom
+        fig.legend(handles=legend_handles, loc='lower center', fontsize=14, 
+                  frameon=True, fancybox=True, shadow=False, ncol=4, 
+                  bbox_to_anchor=(0.5, -0.02))
         
-        fig, axes = plt.subplots(n_rows, n_cols, figsize=(5*n_cols, 5*n_rows))
+        plt.subplots_adjust(left=0.12, right=0.95, top=0.95, bottom=0.12, wspace=0.08, hspace=0.35)
         
-        if n_rows == 1:
-            axes = axes.reshape(1, -1)
-        
-        # Plot for each scenario (row) and each row value (column pairs)
-        for scenario_idx, (directed_trans, jammer_active) in enumerate(scenarios):
-            conf_string_scenario = get_config_string(directed_trans, jammer_active, c_pos, c_phi)
-            traj_dir_scenario = f"Evaluation/Trajectories/{conf_string_scenario}/baseline"
-            
-            print(f"\nProcessing scenario: directed={directed_trans}, jammer={jammer_active}")
-            
-            for col_idx, row_val in enumerate(rows_to_plot):
-                # Load trajectory data for baseline and MAPPO
-                baseline_traj_file = os.path.join(traj_dir_scenario, 
-                    f"baseline_K{k}_row{row_val}_dir{int(directed_trans)}_jam{int(jammer_active)}_trajectory.csv")
-                
-                mappo_traj_file = os.path.join(traj_dir_scenario, 
-                    f"MAPPO_K{k}_row{row_val}_dir{int(directed_trans)}_jam{int(jammer_active)}_trajectory.csv")
-                
-                # Load trajectory data
-                try:
-                    baseline_traj = pd.read_csv(baseline_traj_file)
-                    print(f"  Loaded baseline trajectory for row {row_val}")
-                except FileNotFoundError:
-                    print(f"  Warning: Baseline trajectory not found at {baseline_traj_file}")
-                    baseline_traj = None
-                
-                try:
-                    mappo_traj = pd.read_csv(mappo_traj_file)
-                    print(f"  Loaded MAPPO trajectory for row {row_val}")
-                except FileNotFoundError:
-                    print(f"  Warning: MAPPO trajectory not found at {mappo_traj_file}")
-                    mappo_traj = None
-                
-                # Plot baseline in left column
-                ax_baseline = axes[scenario_idx, col_idx * 2]
-                if baseline_traj is not None:
-                    # Plot baseline trajectory
-                    R = baseline_traj['R'].iloc[0] if 'R' in baseline_traj.columns else 10.0
-                    for agent_id in range(1, k+1):
-                        col_x = f'agent{agent_id}_x'
-                        col_y = f'agent{agent_id}_y'
-                        if col_x in baseline_traj.columns and col_y in baseline_traj.columns:
-                            x_coords = baseline_traj[col_x].dropna().values
-                            y_coords = baseline_traj[col_y].dropna().values
-                            ax_baseline.plot(x_coords, y_coords, alpha=0.6, linewidth=1.5, label=f'Agent {agent_id}')
-                    
-                    ax_baseline.scatter(0, 0, s=150, marker='s', color='blue', alpha=0.8, zorder=5)
-                    ax_baseline.scatter(R, 0, s=150, marker='s', color='green', alpha=0.8, zorder=5)
-                    ax_baseline.set_aspect('equal')
-                    ax_baseline.set_title(f"Baseline, Row {row_val}", fontsize=10)
-                else:
-                    ax_baseline.text(0.5, 0.5, 'Data not found', ha='center', va='center', transform=ax_baseline.transAxes)
-                    ax_baseline.set_title(f"Baseline, Row {row_val}", fontsize=10)
-                
-                ax_baseline.grid(False)
-                ax_baseline.set_xticks([])
-                ax_baseline.set_yticks([])
-                
-                # Plot MAPPO in right column
-                ax_mappo = axes[scenario_idx, col_idx * 2 + 1]
-                if mappo_traj is not None:
-                    # Plot MAPPO trajectory
-                    R = mappo_traj['R'].iloc[0] if 'R' in mappo_traj.columns else 10.0
-                    for agent_id in range(0, k):  # MAPPO uses 0-indexed agents
-                        col_x = f'agent{agent_id}_x'
-                        col_y = f'agent{agent_id}_y'
-                        if col_x in mappo_traj.columns and col_y in mappo_traj.columns:
-                            x_coords = mappo_traj[col_x].dropna().values
-                            y_coords = mappo_traj[col_y].dropna().values
-                            ax_mappo.plot(x_coords, y_coords, alpha=0.6, linewidth=1.5, label=f'Agent {agent_id}')
-                    
-                    ax_mappo.scatter(0, 0, s=150, marker='s', color='blue', alpha=0.8, zorder=5)
-                    ax_mappo.scatter(R, 0, s=150, marker='s', color='green', alpha=0.8, zorder=5)
-                    ax_mappo.set_aspect('equal')
-                    ax_mappo.set_title(f"MAPPO, Row {row_val}", fontsize=10)
-                else:
-                    ax_mappo.text(0.5, 0.5, 'Data not found', ha='center', va='center', transform=ax_mappo.transAxes)
-                    ax_mappo.set_title(f"MAPPO, Row {row_val}", fontsize=10)
-                
-                ax_mappo.grid(False)
-                ax_mappo.set_xticks([])
-                ax_mappo.set_yticks([])
-            
-            # Add scenario label on the left
-            ax_left = axes[scenario_idx, 0]
-            ax_left.text(-0.5, 0.5, scenario_labels[scenario_idx], transform=ax_left.transAxes, 
-                        fontsize=12, fontweight='bold', rotation=90, va='center', ha='right')
-        
-        plt.tight_layout()
-        
-        # Save figure
         plot_dir_combined = os.path.join(plot_dir, "Trajectory_Comparisons", "all_scenarios_comparison")
         os.makedirs(plot_dir_combined, exist_ok=True)
-        save_path = os.path.join(plot_dir_combined, f"baseline_vs_MAPPO_K{k}_all_scenarios.png")
-        plt.savefig(save_path, dpi=150, bbox_inches='tight')
-        print(f"\nSaved combined figure to {save_path}")
+        save_path = os.path.join(plot_dir_combined, f"baseline_vs_MAPPO_K{k}_row{row}.pdf")
+        plt.savefig(save_path, format='pdf', dpi=300, bbox_inches='tight')
+        print(f"Saved to {save_path}")
         plt.close()
 
 if __name__ == "__main__":
