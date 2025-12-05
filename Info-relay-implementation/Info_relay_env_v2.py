@@ -932,8 +932,6 @@ class Info_relay_env(ParallelEnv):
                             phi_diff = min(phi_diff_candidates)
                         else:
                             phi_diff = 0.0
-
-                        phi_diff = np.abs(phi_next - phi_current) if phi_current is not None and phi_next is not None else 0.0
                     
                         # Only count cost if antenna actually moved
                         if phi_current is not None and phi_next is not None:
