@@ -925,9 +925,10 @@ class Info_relay_env(ParallelEnv):
                                 phi_larger = phi_next
 
                             phi_diff_candidates = []
+                            phi_diff_candidates.append(np.abs(phi_larger - phi_smaller))
                             while phi_smaller < phi_larger:
-                                phi_diff_candidates.append(np.abs(phi_larger - phi_smaller))
                                 phi_smaller += 2 * np.pi
+                                phi_diff_candidates.append(np.abs(phi_larger - phi_smaller))
 
                             phi_diff = min(phi_diff_candidates)
                         else:
