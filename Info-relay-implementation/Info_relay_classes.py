@@ -23,12 +23,12 @@ class EvaluationLogger:
         self.directed_transmission = directed_transmission
         self.K = K
         self.scenario_file = scenario_file.split("/")[-1]
-        self.evaluation_log = f"../Evaluation/Trajectories/dir{int(self.directed_transmission)}_jam{int(jammer_on)}_cpos0.5_cphi0.1/MAPPO/" + evaluation_log # change save path
+        self.evaluation_log = evaluation_log # change save path
         
         # idx, success, R, value, budget, sum_distance, air_distance, delivery_time, directed_transmission_bool, K, file
         self.f_eval = open(self.evaluation_log, 'w')
         self.writer_eval = csv.writer(self.f_eval)
-        self.writer_eval.writerow(["idx", "sucess", "R", "value", "budget", "agent_sum_distance",
+        self.writer_eval.writerow(["idx", "success", "R", "value", "budget", "agent_sum_distance",
                                    "air_distance", "delivery_time", "directed_transmission", "K", "file"])
 
         # logging trajectories

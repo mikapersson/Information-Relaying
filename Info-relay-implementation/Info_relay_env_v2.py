@@ -912,6 +912,27 @@ class Info_relay_env(ParallelEnv):
                     for t in times_k[:-1]:
                         phi_current = phi_traj_k[t]
                         phi_next = phi_traj_k[t + 1]
+
+                        if (phi_current is not None and phi_next is not None):
+                            # Since we look at the phi diff here, we don't know which direction
+                            # the antenna moved. Let's be content with picking the shortest
+                            # direction for now.
+                            if phi_next < phi_current:
+                                phi_smaller = phi_next
+                                phi_larger = phi_current
+                            else:
+                                phi_smaller = phi_current
+                                phi_larger = phi_next
+
+                            phi_diff_candidates = []
+                            while phi_smaller < phi_larger:
+                                phi_diff_candidates.append(np.abs(phi_larger - phi_smaller))
+                                phi_smaller += 2 * np.pi
+
+                            phi_diff = min(phi_diff_candidates)
+                        else:
+                            phi_diff = 0.0
+
                         phi_diff = np.abs(phi_next - phi_current) if phi_current is not None and phi_next is not None else 0.0
                     
                         # Only count cost if antenna actually moved
