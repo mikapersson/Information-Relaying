@@ -4,6 +4,16 @@ import argparse
 import curses  # terminal key capture on Linux/Mac
 from Info_relay_env_v2 import Info_relay_env
 
+"""
+Usage:
+run ./info_relay.py to run the environment with random actions.
+Just sit back and watch
+
+run ./info_relay.py --keyboard and press any directional key to
+bring up the gui
+
+"""
+
 parser = argparse.ArgumentParser()
 parser.add_argument("-k", "--keyboard", action="store_true",
                     help="Enable keyboard control instead of random actions")
