@@ -39,7 +39,7 @@ def sample_capsule_point(R, Rcom, rng):
     return np.array([x, y])
 
 def plot_capsule_samples(R=10.0, Rcom=1.0, n_samples=1000, seed=0):
-    rng = np.random.default_rng(seed)
+    rng = np.random.default_rng(100)
     samples = np.array([sample_capsule_point(R, Rcom, rng) for _ in range(n_samples)])
 
     # Capsule outline for reference
@@ -152,7 +152,7 @@ if __name__ == "__main__":
     K=10
     Rcom=1.0
     Ra_factor = 0.6  # later multiplied with R
-    seed=1
+    seed=2
     agent_sigma = 0.2
     jammer_sigma = 0.1
     beta = 0.99
