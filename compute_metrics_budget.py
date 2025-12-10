@@ -62,6 +62,12 @@ def compute_budget_from_poly(K, R, Rcom=1.0):
     poly = np.poly1d(coeffs)
     return float(poly(R))
 
+def angular_diff(phi1, phi2):
+    """Compute the shortest angular distance between two angles, accounting for 2π wrapping."""
+    if phi1 is None or phi2 is None:
+        return 0.0
+    diff = np.abs(phi2 - phi1)
+    return min(diff, 2*np.pi - diff)
 
 def compute_metrics(p_trajectories, phi_trajectories, c_pos, c_phi, budget, beta):
     """
@@ -87,7 +93,7 @@ def compute_metrics(p_trajectories, phi_trajectories, c_pos, c_phi, budget, beta
     for k in range(K):
         if k in p_trajectories:
             p_traj_k = p_trajectories[k]
-            for t in range(len(p_traj_k)-1):
+            for t, _ in p_traj_k.items():
                 if t in p_traj_k and (t + 1) in p_traj_k:
                     distance_step = np.linalg.norm(p_traj_k[t + 1] - p_traj_k[t])
                     D_tot += distance_step
@@ -104,27 +110,8 @@ def compute_metrics(p_trajectories, phi_trajectories, c_pos, c_phi, budget, beta
                 for t in times_k[:-1]:
                     phi_current = phi_traj_k[t]
                     phi_next = phi_traj_k[t + 1]
-                    
-                    if (phi_current is not None and phi_next is not None and not np.isclose(phi_current, phi_next, atol=1e-6)):
-                        # Since we look at the phi diff here, we don't know which direction
-                        # the antenna moved. Let's be content with picking the shortest
-                        # direction for now.
-                        if phi_next < phi_current:
-                            phi_smaller = phi_next
-                            phi_larger = phi_current
-                        else:
-                            phi_smaller = phi_current
-                            phi_larger = phi_next
-
-                        phi_diff_candidates = []
-                        phi_diff_candidates.append(np.abs(phi_larger - phi_smaller))
-                        while phi_smaller < phi_larger:
-                            phi_smaller += 2 * np.pi
-                            phi_diff_candidates.append(np.abs(phi_larger - phi_smaller))
-
-                        phi_diff = min(phi_diff_candidates)
-                    else:
-                        phi_diff = 0.0
+                    #phi_diff = np.abs(phi_next - phi_current) if phi_current is not None and phi_next is not None else 0.0
+                    phi_diff = angular_diff(phi_current, phi_next)                    
                     
                     # Only count cost if antenna actually moved
                     if phi_current is not None and phi_next is not None:

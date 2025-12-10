@@ -116,6 +116,10 @@ def evaluate_baseline(data_file,
     Returns:
         values: List of evaluation results/values
     """
+
+    if not directed_transmission:
+        c_phi = 0.0
+
     results = []
     
     data_path = Path(data_file)
@@ -174,6 +178,7 @@ def evaluate_baseline(data_file,
                 sigma=sigma,
                 beta=beta,
                 c_pos=c_pos,
+                c_phi=c_phi,
                 phi_agents=phi_agents,
                 jammer_info=jammer_info,
                 clustering=clustering_on
@@ -1166,6 +1171,9 @@ def plot_comparison_heatmap_all(comparisons, eval_K, plot_dir=None, methods_str=
                 # ensure value metric includes 0
                 if key == 'value':
                     min_val = min(min_val, 0)
+                # ensure delivery_time metric starts at 0
+                if key == 'delivery_time':
+                    min_val = 0
             else:
                 min_val, max_val = 0, 1
             
@@ -1293,7 +1301,7 @@ def plot_comparison_heatmap_all(comparisons, eval_K, plot_dir=None, methods_str=
         for i, k in enumerate(eval_K)
     ]
     fig.legend(handles=handles_k, fontsize=22, loc='lower center', ncol=len(eval_K),
-               bbox_to_anchor=(0.43, 0.03), frameon=True, bbox_transform=fig.transFigure)
+               bbox_to_anchor=(0.43, -0.07), frameon=True, bbox_transform=fig.transFigure)
 
     if plot_dir is not None:
         os.makedirs(plot_dir, exist_ok=True)
@@ -1339,12 +1347,185 @@ def generate_baseline_trajectory(k, row, data_dir, c_pos, c_phi, directed_transm
     # Convert trajectory dict to csv and save
     conf_string = get_config_string(directed_transmission, jammer_on, c_pos, c_phi)
     if testing:
-        traj_path = f"Testing/Data/Trajectories/{conf_string}/Baseline"
+        traj_path = f"Testing/Trajectories/{conf_string}/Baseline"
     else:
         traj_path = f"Evaluation/Trajectories/{conf_string}/Baseline"
     savepath = f"{traj_path}/baseline_K{k}_row{row}_dir{int(directed_transmission)}_jam{int(jammer_on)}_trajectory.csv"
     os.makedirs(os.path.dirname(savepath), exist_ok=True)
     save_trajectory(baseline_result, savepath=savepath, file=data_name, directed_transmission=directed_transmission, jammer_on=jammer_on, file_idx=row_idx)
+
+
+def plot_mappo_vs_baseline_scenarios(scenarios_dict, eval_K, plot_dir=None, scenario_names_list=None, 
+                                     n_bins_dict=None, max_xy_lim_dict=None):
+    """
+    Plot MAPPO vs Baseline comparison heatmaps for all scenarios and metrics.
+    Layout: 4 rows (scenarios) × 3 columns (metrics: value, delivery_time, agent_sum_distance)
+    
+    Parameters
+    ----------
+    scenarios_dict : dict
+        Dictionary mapping scenario name to (baseline_dict, mappo_dict) tuples.
+        Each dict maps K values to lists of result records.
+    eval_K : list
+        List of K values to include.
+    plot_dir : str, optional
+        Directory to save the plot.
+    scenario_names_list : list, optional
+        List of scenario names for row labels. Default: list of keys from scenarios_dict.
+    n_bins_dict : dict, optional
+        Dictionary mapping metric keys to number of bins.
+    max_xy_lim_dict : dict, optional
+        Dictionary mapping metric keys to maximum axis limits.
+    """
+    
+    # Set Computer Modern font for LaTeX compatibility
+    plt.rcParams['font.family'] = 'serif'
+    plt.rcParams['font.serif'] = ['Computer Modern']
+    plt.rcParams['text.usetex'] = True
+    plt.rcParams['axes.facecolor'] = 'white'
+    plt.rcParams['figure.facecolor'] = 'white'
+    
+    # Colormaps for the Ks
+    colormaps = ['Blues', 'Oranges', 'Greens', 'Purples', 'Reds']
+    
+    # Ensure all colormaps show masked entries as white
+    for cm in colormaps:
+        plt.get_cmap(cm).set_bad('white')
+    
+    # Set defaults
+    if n_bins_dict is None:
+        n_bins_dict = {
+            'value': 60,
+            'delivery_time': 70,
+            'agent_sum_distance': 65,
+        }
+    
+    if max_xy_lim_dict is None:
+        max_xy_lim_dict = {
+            'value': 100,
+            'delivery_time': 80,
+            'agent_sum_distance': 50,
+        }
+    
+    if scenario_names_list is None:
+        scenario_names_list = sorted(scenarios_dict.keys())
+    
+    metrics = [
+        ('value', 'Value', r'$V$'),
+        ('delivery_time', 'Delivery Time', r'$T_{\mathrm{del}}$'),
+        ('agent_sum_distance', 'Agent Sum Distance', r'$D_{\mathrm{tot}}$')
+    ]
+    
+    # Create 4x3 figure
+    fig, axes = plt.subplots(len(scenario_names_list), 3, figsize=(15, 5*len(scenario_names_list)))
+    
+    threshold = 0.05
+    fontsize = 14
+    
+    # Process each scenario (row)
+    for row_idx, scenario_name in enumerate(scenario_names_list):
+        baseline_dict, mappo_dict = scenarios_dict[scenario_name]
+        
+        # Process each metric (column)
+        for col_idx, (metric_key, metric_title, metric_label) in enumerate(metrics):
+            ax = axes[row_idx, col_idx]
+            
+            # Get bins and limits for this metric
+            n_bins = n_bins_dict.get(metric_key, 60)
+            max_val = max_xy_lim_dict.get(metric_key, 100)
+            min_val = 0
+            
+            bins = np.linspace(min_val, max_val, n_bins)
+            
+            # Build combined heatmap across all K values
+            H_combined = np.zeros((n_bins - 1, n_bins - 1))
+            
+            for k in eval_K:
+                if k in baseline_dict and k in mappo_dict:
+                    baseline_data = baseline_dict[k]
+                    mappo_data = mappo_dict[k]
+                    m = min(len(baseline_data), len(mappo_data))
+                    baseline_data = baseline_data[:m]
+                    mappo_data = mappo_data[:m]
+                    
+                    # Extract metric values
+                    v_baseline = np.array([x.get(metric_key, np.nan) for x in baseline_data])
+                    v_mappo = np.array([x.get(metric_key, np.nan) for x in mappo_data])
+                    
+                    # Remove NaN values
+                    valid_mask = ~(np.isnan(v_baseline) | np.isnan(v_mappo))
+                    v_baseline = v_baseline[valid_mask]
+                    v_mappo = v_mappo[valid_mask]
+                    
+                    # Digitize into bins
+                    xb = np.digitize(v_baseline, bins) - 1
+                    yb = np.digitize(v_mappo, bins) - 1
+                    
+                    # Accumulate counts
+                    for xi, yi in zip(xb, yb):
+                        if 0 <= xi < n_bins - 1 and 0 <= yi < n_bins - 1:
+                            H_combined[yi, xi] += 1
+            
+            # Normalize and mask
+            if H_combined.max() > 0:
+                H_norm = H_combined / H_combined.max()
+                H_mask = np.ma.masked_less(H_norm, threshold)
+            else:
+                H_mask = np.ma.masked_array(H_combined, mask=True)
+            
+            # Plot heatmap using a single colormap (not per-K coloring)
+            cmap = plt.get_cmap(colormaps[col_idx % len(colormaps)])
+            cmap.set_bad('white')
+            
+            im = ax.imshow(H_mask, origin='lower', cmap=cmap,
+                          extent=[min_val, max_val, min_val, max_val],
+                          alpha=0.85, interpolation='nearest')
+            
+            # Diagonal line
+            ax.plot([min_val, max_val], [min_val, max_val], 'r--', alpha=0.3, linewidth=1.5)
+            
+            # Formatting
+            ax.set_aspect('equal')
+            ax.set_xlim(min_val, max_val)
+            ax.set_ylim(min_val, max_val)
+            
+            # Ticks
+            ticks = np.linspace(min_val, max_val, 4)
+            ax.set_xticks(ticks)
+            ax.set_yticks(ticks)
+            ax.tick_params(labelsize=10)
+            
+            # Labels
+            if col_idx == 0:
+                ax.set_ylabel(f'{scenario_name.upper()}\n↓ MAPPO', fontsize=fontsize, fontweight='bold')
+            
+            if row_idx == 0:
+                ax.set_title(metric_title, fontsize=fontsize, fontweight='bold')
+            
+            if row_idx == len(scenario_names_list) - 1:
+                ax.set_xlabel('Baseline →', fontsize=fontsize, fontweight='bold')
+    
+    plt.subplots_adjust(left=0.08, right=0.98, top=0.96, bottom=0.12, wspace=0.3, hspace=0.35)
+    
+    # Create K legend at the bottom
+    handles_k = [
+        patches.Rectangle((0, 0), 1, 1,
+                        color=plt.get_cmap('Blues')(0.7 - 0.1*i),
+                        label=f'$K$={k}')
+        for i, k in enumerate(eval_K)
+    ]
+    fig.legend(handles=handles_k, fontsize=12, loc='lower center', ncol=len(eval_K),
+              bbox_to_anchor=(0.5, -0.02), frameon=True, bbox_transform=fig.transFigure)
+    
+    if plot_dir is not None:
+        os.makedirs(plot_dir, exist_ok=True)
+        plot_filename = f'baseline_vs_MAPPO_all_scenarios_4x3.pdf'
+        plot_path = os.path.join(plot_dir, plot_filename)
+        plt.savefig(plot_path, format='pdf', dpi=300, bbox_inches='tight',
+                   facecolor='white', edgecolor='none', transparent=False)
+        print(f"\nSaved figure to: {plot_path}")
+    else:
+        plt.show()
 
 
 def plot_antenna_lobe(ax, position, phi, Rcom, jammer_pos=None, color='orange', fill=False):
@@ -2085,16 +2266,18 @@ def plot_trajectory_comparison(k, rows, methods_to_compare, data_dir, traj_dir, 
                     y_coords = traj_data[agent_col_y].values
                     t_max = len(x_coords) - 1
                     
-                    for t in range(len(x_coords) - 1):
-                        if t_receive_message is not None and t >= t_receive_message:
-                            segment_color = agent_color
-                            alpha_val = 0.2 + 0.6 * (t / t_max)
-                        else:
-                            segment_color = 'grey'
-                            alpha_val = 0.2
-                        
-                        ax.plot(x_coords[t:t+2], y_coords[t:t+2], 
-                               alpha=alpha_val, linewidth=2, linestyle='--', color=segment_color, zorder=-1)
+                    # Find where message is received
+                    if t_receive_message is not None:
+                        # Plot grey trajectory before message reception
+                        if t_receive_message > 0:
+                            ax.plot(x_coords[:t_receive_message+1], y_coords[:t_receive_message+1], 
+                                   alpha=0.2, linewidth=2, color='grey', zorder=-1)
+                        # Plot orange trajectory after message reception
+                        ax.plot(x_coords[t_receive_message:], y_coords[t_receive_message:], 
+                               alpha=0.6, linewidth=2, color=agent_color, zorder=-1)
+                    else:
+                        # No message received, plot entire trajectory in grey
+                        ax.plot(x_coords, y_coords, alpha=0.2, linewidth=2, color='grey', zorder=-1)
                     
                     # Plot final position
                     ax.scatter(final_x, final_y, s=100, alpha=0.8, edgecolors='darkorange', 
@@ -2168,7 +2351,7 @@ def plot_trajectory_comparison(k, rows, methods_to_compare, data_dir, traj_dir, 
                     for t in range(len(jammer_x_coords) - 1):
                         alpha_val = 0.2 + 0.6 * (t / max(1, len(jammer_x_coords) - 1))
                         ax.plot(jammer_x_coords[t:t+2], jammer_y_coords[t:t+2], 
-                               alpha=alpha_val, linewidth=1.5, linestyle='--', color='red', zorder=-1)
+                               alpha=alpha_val, linewidth=1.5, linestyle='-', color='red', zorder=-1)
                     
                     ax.scatter(jammer_x_coords[-1], jammer_y_coords[-1], s=150, marker='^', 
                               color='red', alpha=0.8, edgecolors='darkred', linewidth=1.5, zorder=10)
@@ -2186,13 +2369,13 @@ def plot_trajectory_comparison(k, rows, methods_to_compare, data_dir, traj_dir, 
             if jammer_on:
                 cap_radius = 1.5 * Rcom
                 x_min = -cap_radius - 0.1 * Rcom
-                x_max = R + cap_radius + 0.1 * Rcom
+                x_max = R + cap_radius + 0.2 * Rcom
             else:
                 x_min = -0.2 * Ra
-                x_max = R + 0.2 * Ra
+                x_max = R + 0.3 * Ra
             
             ax.set_xlim(x_min, x_max)
-            ax.set_ylim(-0.62*Ra, 0.8*Ra)
+            ax.set_ylim(-0.8*Ra, 0.85*Ra)
             
             # Add subplot title with method name, row, and results if available
             #title_text = f'{method.upper()} / Row ${row}$'
@@ -2223,14 +2406,14 @@ def plot_trajectory_comparison(k, rows, methods_to_compare, data_dir, traj_dir, 
                   markeredgecolor='darkorange', markersize=8, label=r'$\mathrm{Agent}$', markeredgewidth=1.5),
         plt.Line2D([0], [0], marker='o', color='w', markerfacecolor='grey', 
                   markeredgecolor='darkgrey', markersize=8, label=r'Agent init.', markeredgewidth=1.5),
-        plt.Line2D([0], [0], color='orange', linewidth=2, linestyle='--', label=r'Has message'),
-        plt.Line2D([0], [0], color='grey', linewidth=2, linestyle='--', label=r'No message'),
+        plt.Line2D([0], [0], color='orange', linewidth=2, linestyle='-', label=r'Has message'),
+        plt.Line2D([0], [0], color='grey', linewidth=2, linestyle='-', label=r'No message'),
     ]
     
     # Add common legend at bottom
-    fig.legend(handles=legend_handles, loc='lower center', fontsize=14, 
+    fig.legend(handles=legend_handles, loc='lower center', fontsize=13, 
               frameon=True, fancybox=True, shadow=False, ncol=6, 
-              bbox_to_anchor=(0.4, 0.17))
+              bbox_to_anchor=(0.39, 0.17))
     
     plt.tight_layout(rect=[0, 0.18, 0.8, 0.96])
     
@@ -2584,7 +2767,7 @@ def animate_trajectory(traj_dir, k, row, directed_transmission, jammer_on, metho
 
 def main():
     # CHOOSE EVALUATION/TESTING MODE
-    # (USE) 0-generate baseline result data for one scenario
+    # (USE) 0-generate baseline result data for one scenario, otherwise use 23
     # (USE) 1-evaluate single policy  
     # 2-compare baseline policies 
     # 3-examine specific instances 
@@ -2600,7 +2783,7 @@ def main():
     # (USE)13-plot trajectory (takes trajectory file)
     # (USE)14-animation trajectory (takes trajectory file)
     # 15-compare mappo and maddpg against each other
-    # (TODO) 16-heatmaps over all K and methods simultaneously for one scenario - red circle for specific point corresponding to a specific scene
+    # (Fig. 6) 16-heatmaps over all K and methods simultaneously for one scenario - red circle for specific point corresponding to a specific scene
     # (TODO)17-heatmaps over all K simultaneously for all scenarios but only value (4x3 subplots)
     # (TODO)18-for a trajectory, plot the resulting policies  (3x1)
     # (TODO)19- -||- animation results  (3x1)
@@ -2611,39 +2794,44 @@ def main():
     # (USE) 24-compare two specific evaluation files
     # (USE) 25-plot scene without agents or jammer
     # 26-compare baseline scenarios against each other 
-    # (USE) 27-generate quantitative results for report (tables)
-    # (USE) 28-plot trajectory comparison for specific scenario between specified policies
-    # (TODO) 29-plot baseline and MAPPO trajectories for all scenarios apart from isotropic non-jammed for specific rows (3 x n_rows) 
-    
+    # (Tab.1&2) 27-generate quantitative results for report (tables)
+    # (Fig) 28-plot trajectory comparison for specific scenario between specified policies
+    # (Fig) 29-plot baseline and MAPPO trajectories for all scenarios apart from isotropic non-jammed for specific rows (3 x n_rows) 
+    # 30-examine MADDPG K=1 case
+    # 31-debug MADDPG K1 case
+    # 32-examine MAPPO (jammer effect)
+    # (Fig) 33-MAPPO vs baseline 2D histograms for ALL scenarios 4x3 subplots 
+    # (Fig) 34-Baseline and MAPPO rollout trajectories for specified scenario and scenes
+
     testing = False  # are we running on test data? (FINAL DATA) False -> Evaluation data
 
-    eval_mode = 29
+    eval_mode = 34
 
-    eval_K = [7]
+    eval_K = [1,3,5,7,9]  # 1,3,5,7,9
     
-    value_remove_below = -5
+    value_remove_below = 0
     value_remove_above = 20
-    time_remove_below = -0  
+    time_remove_below = 0  
     time_remove_above = 70 
     dist_remove_below = 0  
     dist_remove_above = 120
 
     # Configuration
     K_start = 1
-    K_end = 10
-    K = range(K_start, K_end+1)
+    K_end = 9
+    K = [1,3,5,7,9]  # Values of K to evaluate
     row_start = 1  
     row_end = 10000  # Specify the range of rows to evaluate
 
     c_pos = 0.5 #[0.5, 1]  # motion cost parameter
     c_phi = 0.1  # antenna cost parameter
     
-    directed_transmission = False
-    jammer_on = False
+    directed_transmission = True
+    jammer_on = True
     clustering_on = True 
     minimize_distance = False  # minimize total movement instead of fasted delivery time
     
-    method = "baseline"  # Baseline or MADDPG or MAPPO
+    method = "Baseline"  # Baseline or MADDPG or MAPPO
     
     present_mode = "hist"  # hist ; violin
     compare_mode = "heatmap"  # hist ; scatter ; heatmap; violin
@@ -3036,7 +3224,7 @@ def main():
     elif eval_mode == 13:  # Plot trajectory (takes trajectory file)
 
         k = 7
-        row = 80 #equal to which episode to check out (look at 20,40,60,... in MAPPO)
+        row = 120 #equal to which episode to check out (look at 20,40,60,... in MAPPO)
         force_gen_traj = True
 
         plot_dir = os.path.join(plot_dir, "Trajectories", f"{conf_string}", f"{method}")
@@ -3093,8 +3281,8 @@ def main():
         
     elif eval_mode == 14:  # Animate trajectory (takes trajectory file)
 
-        k = 7
-        row = 80 #equal to which episode to check out (look at 20,40,60,... in MAPPO)
+        k = 9
+        row = 22 #equal to which episode to check out (look at 20,40,60,... in MAPPO)
         #directed_transmission = False
         force_gen_traj = True
 
@@ -3193,33 +3381,17 @@ def main():
         keep_sup_title = False
         n_bins_dict = {
             'value': 57,
-            ('baseline', 'MADDPG', 'delivery_time'): 69,  # 35
-            ('baseline', 'MAPPO', 'delivery_time'): 57,
-            'agent_sum_distance': 50,}
+            ('baseline', 'MADDPG', 'delivery_time'): 70,  # 35
+            ('baseline', 'MAPPO', 'value'): 70,
+            ('baseline', 'MAPPO', 'delivery_time'): 76,
+            'agent_sum_distance': 55,}
         
-        # Example n_bins_dict for specifying bins per comparison and/or metric
-        # Uncomment and modify as needed:
-        # n_bins_dict = {
-        #     # Comparison-specific bins (takes precedence)
-        #     ('baseline', 'MADDPG', 'delivery_time'): 35,
-        #     ('baseline', 'MAPPO', 'value'): 48,
-        #     # Global metric bins (fallback for comparisons not specified above)
-        #     'value': 40,
-        #     'delivery_time': 31,
-        #     'agent_sum_distance': 50,
-        # }
-        # Or use global bins for all metrics across all comparisons:
-        # n_bins_dict = {
-        #     'value': 40,
-        #     'delivery_time': 31,
-        #     'agent_sum_distance': 50,
-        # }
         
         # Example max_xy_lim_dict for specifying axis limits per comparison and/or metric
         # Uncomment and modify as needed:
         max_xy_lim_dict = {
              # Comparison-specific limits (takes precedence)
-             ('baseline', 'MAPPO', 'delivery_time'): 55,
+             ('baseline', 'MAPPO', 'delivery_time'): 75,
              # Global metric limits (fallback for comparisons not specified above)
              ('baseline', 'MAPPO','agent_sum_distance'): 40,
         }
@@ -3232,7 +3404,7 @@ def main():
         #max_xy_lim_dict = None  # Set to dict above to use custom limits
         
         # ===== SELECT WHICH METHODS TO COMPARE =====
-        methods_to_compare = ["baseline", "MAPPO", "MADDPG"]  # Choose subset: e.g., ["baseline", "MADDPG"]
+        methods_to_compare = ["baseline", "MADDPG"]  # Choose subset: e.g., ["baseline", "MADDPG"]
         # Other options:
         # methods_to_compare = ["baseline", "MADDPG"]
         # methods_to_compare = ["baseline", "MAPPO"]
@@ -4738,17 +4910,17 @@ def main():
     elif eval_mode == 27:  # Generate results tables for report (median of metrics)
         """
         Generate LaTeX-formatted results tables with median metrics for MADDPG, MAPPO, and Baseline.
-        Output format: $k$ & MADDPG(success, value, delivery_time, agent_sum_distance) & 
-                           MAPPO(success, value, delivery_time, agent_sum_distance) & 
+        Output format: $k$ & MAPPO(success, value, delivery_time, agent_sum_distance)
+                            MADDPG(success, value, delivery_time, agent_sum_distance) & 
                            Baseline(value, delivery_time, agent_sum_distance) \\
         """
-        methods = ["MADDPG", "MAPPO", "Baseline"]
-        maddpg_extra_string = "rewshape_curlearn_konstig_obs_"
+        methods = ["MAPPO", "Baseline"]  # OBS! order matters
+        maddpg_extra_string = ""  # rewshape_curlearn_konstig_obs_
         mappo_extra_string = ""
         
         # Configuration
         load_string = "test" if testing else "evaluation"
-        result_K = [1, 3, 5, 7]  # K values to report
+        result_K = [1, 3, 5, 7, 9]  # K values to report
         
         # File paths for each method
         def get_result_file_path(method, k, extra_string=""):
@@ -4787,7 +4959,10 @@ def main():
         print("="*100)
         
         for k in result_K:
-            row_output = f"  ${k}$"
+            if not directed_transmission and not jammer_on:
+                row_output = f"  ${k}$"
+            else:
+                row_output = f" & &  ${k}$"
             
             # For each method, compute median metrics
             for method in methods:
@@ -4811,21 +4986,67 @@ def main():
                     print(f"  Skipping {method} K={k} (incomplete data)")
                     continue
                 
-                # Compute medians
-                median_value = np.median(values)
-                median_delivery_time = np.median(delivery_times)
-                median_agent_distance = np.median(agent_distances)
-                
-                # For MADDPG and MAPPO, also compute success rate (value >= 0)
+                # For MADDPG and MAPPO, use success column from file for filtering and success rate
                 if method in ["MADDPG", "MAPPO"]:
-                    success_count = sum(1 for v in values if v >= 0)
-                    success_rate = success_count / len(values)
+                    # Get success column from results
+                    if method == "MAPPO":
+                        s_temp = "sucess"  # MAPPO typo in some files
+                    else:
+                        s_temp = "success"
+                    success_list = [r.get(s_temp, 'None') for r in results if s_temp in r]
+                    
+                    if success_list:
+                        success_count = sum(1 for s in success_list if s)
+                        total_count = len(success_list)
+                        success_rate = success_count / total_count if total_count > 0 else 0
+                        
+                        # Get indices where success is True
+                        success_indices = [i for i, r in enumerate(results) if r.get(s_temp, False)]
+                        
+                        # Use only success cases for median calculation
+                        if success_indices:
+                            success_values = [values[i] for i in success_indices if i < len(values)]
+                            success_delivery_times = [delivery_times[i] for i in success_indices if i < len(delivery_times)]
+                            success_agent_distances = [agent_distances[i] for i in success_indices if i < len(agent_distances)]
+                            
+                            median_value = np.median(success_values) if success_values else np.nan
+                            median_delivery_time = np.median(success_delivery_times) if success_delivery_times else np.nan
+                            median_agent_distance = np.median(success_agent_distances) if success_agent_distances else np.nan
+                        else:
+                            # No success cases, use NaN
+                            median_value = np.nan
+                            median_delivery_time = np.nan
+                            median_agent_distance = np.nan
+                    else:
+                        # No success column found, compute from value >= 0
+                        success_indices = [i for i, v in enumerate(values) if v >= 0]
+                        success_count = len(success_indices)
+                        total_count = len(values)
+                        success_rate = success_count / total_count if total_count > 0 else 0
+                        
+                        if success_indices:
+                            success_values = [values[i] for i in success_indices]
+                            success_delivery_times = [delivery_times[i] for i in success_indices]
+                            success_agent_distances = [agent_distances[i] for i in success_indices]
+                            
+                            median_value = np.median(success_values)
+                            median_delivery_time = np.median(success_delivery_times)
+                            median_agent_distance = np.median(success_agent_distances)
+                        else:
+                            median_value = np.nan
+                            median_delivery_time = np.nan
+                            median_agent_distance = np.nan
                     
                     # Format: success_rate & value & delivery_time & agent_distance
-                    row_output += f" & ${success_rate:.2f}$ & ${median_value:.2f}$ & ${median_delivery_time:.0f}$ & ${median_agent_distance:.0f}$"
-                else:  # Baseline
+                    row_output += f" & ${success_rate:.2f}$ & ${median_value:.2f}$ & ${median_delivery_time:.0f}$ & ${median_agent_distance:.1f}$"
+                else:  # Baseline - use all cases
+                    # Compute medians on all cases
+                    median_value = np.median(values)
+                    median_delivery_time = np.median(delivery_times)
+                    median_agent_distance = np.median(agent_distances)
+                    
                     # Format: value & delivery_time & agent_distance (no success rate)
-                    row_output += f" & $1.00$ & ${median_value:.2f}$ & ${median_delivery_time:.0f}$ & ${median_agent_distance:.0f}$"
+                    row_output += f" & $1.00$ & ${median_value:.2f}$ & ${median_delivery_time:.0f}$ & ${median_agent_distance:.1f}$"
             
             row_output += " \\\\"
             print(row_output)
@@ -4887,7 +5108,7 @@ def main():
         else:
             print(f"Error: Metric '{metric}' not found in one or both result files.")
 
-        rows = [80, 520]  # equal to which episode to check out (look at 20,40,60,... in MAPPO)
+        rows = [80, 180]  # equal to which episode to check out (look at 20,40,60,... in MAPPO)
         methods_to_compare = ["baseline", "MAPPO", "MADDPG"]  # OBS! Only for MAPPO and baseline
         
         plot_dir = os.path.join(plot_dir, "Trajectory_Comparisons", conf_string)
@@ -4907,7 +5128,7 @@ def main():
         import matplotlib.patches as patches
         
         k = 7
-        row = 520  # episode number
+        row = 120  # episode number
         
         sns.set_style("whitegrid")
         sns.set_palette("husl")
@@ -4923,18 +5144,19 @@ def main():
         
         # Define scenarios (excluding isotropic non-jammed)
         scenarios = [
-            (False, True, "Isotropic + Jammer"),      # isotropic + jammer
-            (True, False, "Directed, No Jammer"),     # directed + no jammer
+            #(False, True, "Isotropic + Jammer"),      # isotropic + jammer
+            #(True, False, "Directed, No Jammer"),     # directed + no jammer
             (True, True, "Directed + Jammer"),        # directed + jammer
         ]
+        n_scenarios = len(scenarios)
         
         Rcom = 1.0
         agent_color = 'orange'
         passive_color = 'black'
         marker_scale = max(0.3, 1.0 - (k - 1) * 0.03)
         
-        # Create figure: 3 rows x 2 columns (baseline, MAPPO)
-        fig, axes = plt.subplots(3, 2, figsize=(12, 13))
+        # Create figure: n_scenarios rows x 2 columns (baseline, MAPPO)
+        fig, axes = plt.subplots(n_scenarios, 2, figsize=(12, 13))
         
         # First pass: collect all coordinates for common axis limits
         all_x_coords = []
@@ -4945,7 +5167,10 @@ def main():
             conf_string = get_config_string(directed_tx, jammer_on, c_pos, c_phi)
             
             # Load baseline
-            baseline_dir = os.path.join("Evaluation/Trajectories", conf_string, "Baseline")
+            if testing:
+                baseline_dir = os.path.join("Testing/Trajectories", conf_string, "Baseline")
+            else:
+                baseline_dir = os.path.join("Evaluation/Trajectories", conf_string, "Baseline")
             baseline_file = os.path.join(baseline_dir, f"baseline_K{k}_row{row}_dir{int(directed_tx)}_jam{int(jammer_on)}_trajectory.csv")
             
             if not os.path.exists(baseline_file):
@@ -5169,7 +5394,11 @@ def main():
             
             # Plot baseline (left column)
             ax_baseline = axes[scenario_idx, 0]
-            baseline_dir = os.path.join("Evaluation/Trajectories", conf_string, "Baseline")
+            if testing:
+                baseline_dir = os.path.join("Testing/Trajectories", conf_string, "Baseline")
+            else:
+                baseline_dir = os.path.join("Evaluation/Trajectories", conf_string, "Baseline")
+            
             baseline_file = os.path.join(baseline_dir, f"baseline_K{k}_row{row}_dir{int(directed_tx)}_jam{int(jammer_on)}_trajectory.csv")
             
             if os.path.exists(baseline_file):
@@ -5250,6 +5479,691 @@ def main():
         plt.savefig(save_path, format='pdf', dpi=300, bbox_inches='tight')
         print(f"Saved to {save_path}")
         plt.close()
+
+    elif eval_mode == 30:  # Examine single result file
+        path = "Testing/Testing_results/dir1_jam0_cpos0.5_cphi0.1/MAPPO/MAPPO_test_results_K9_cpos0.5_cphi0.1_n10000_dir1_jam0.csv"
+        data = pd.read_csv(path)
+        #print(data.head())
+
+        # Specify range for computing success rate (optional)
+        row_first = 1      # First row (1-indexed)
+        row_last = 100    # Last row (None for all rows)
+        
+        # Filter data by row range if specified
+        if row_first is not None or row_last is not None:
+            # Convert 1-indexed to 0-indexed for slicing
+            start_idx = (row_first - 1) if row_first is not None else 0
+            end_idx = row_last if row_last is not None else len(data)
+            data_subset = data.iloc[start_idx:end_idx].reset_index(drop=True)
+            print(f"\nComputing success rate for rows {row_first} to {row_last}...")
+        else:
+            data_subset = data
+            print(f"\nComputing success rate for all rows...")
+
+        # Compute success rate
+        total_episodes = len(data_subset)
+        successful_episodes = len(data_subset[data_subset['success'] >= 0])
+        success_rate = successful_episodes / total_episodes if total_episodes > 0 else 0
+
+        # Compute median metrics for successful episodes
+        successful_data = data_subset[data_subset['success'] >= 0]
+        median_value = successful_data['value'].median() if not successful_data.empty else np.nan
+        median_delivery_time = successful_data['delivery_time'].median() if not successful_data.empty else np.nan
+        median_agent_distance = successful_data['agent_sum_distance'].median() if not successful_data.empty else np.nan
+        
+        print(f"Total episodes: {total_episodes}")
+        print(f"Successful episodes: {successful_episodes}")
+        print(f"Success rate: {success_rate:.2f}")
+        print(f"Median value (successful): {median_value:.2f}")
+        print(f"Median delivery time (successful): {median_delivery_time:.2f}")
+        print(f"Median agent sum distance (successful): {median_agent_distance:.2f}")
+
+    elif eval_mode == 31:  # Debug K1 MADDPG
+        maddpg_path = "Testing/Testing_results/dir0_jam0_cpos0.5_cphi0.1/MADDPG/MADDPG_test_results_K1_cpos0.5_cphi0.1_n10000_dir0_jam0.csv"
+        baseline_path = "Testing/Testing_results/dir0_jam0_cpos0.5_cphi0.1/Baseline/baseline_test_results_K1_cpos0.5_cphi0.1_n10000_dir0_jam0.csv"
+
+        # Load data
+        maddpg_data = pd.read_csv(maddpg_path)
+        baseline_data = pd.read_csv(baseline_path)
+
+        # Get Delivery times
+        maddpg_delivery_times = maddpg_data['delivery_time'].values
+        baseline_delivery_times = baseline_data['delivery_time'].values
+
+        # Compute baseline - maddpg delivery time difference
+        delivery_time_diff = baseline_delivery_times - maddpg_delivery_times
+        
+        # Number of times MADDPG outperforms baseline
+        maddpg_better_indices = np.where(delivery_time_diff > 0)[0]
+        print("First episode indices where MADDPG outperforms baseline: ", maddpg_better_indices[0])
+        maddpg_better_count = np.sum(delivery_time_diff > 0)
+        total_episodes = len(delivery_time_diff)
+        print(f"MADDPG outperforms baseline in {maddpg_better_count} out of {total_episodes} episodes.")
+
+    elif eval_mode == 32:  # Plot 1x2 heatmaps for examining MAPPO
+        """
+        Create a 1x2 heatmap comparison examining the effect of jammer on MAPPO delivery time.
+        Left: dir0_jam1 vs dir0_jam0 (isotropic, jammer effect)
+        Right: dir1_jam1 vs dir1_jam0 (directed, jammer effect)
+        Both show delivery_time metric only.
+        """
+        
+        # Set Computer Modern font for LaTeX compatibility
+        import matplotlib.pyplot as plt
+        plt.rcParams['font.family'] = 'serif'
+        plt.rcParams['font.serif'] = ['Computer Modern']
+        plt.rcParams['text.usetex'] = True
+        
+        # Colormaps for the Ks
+        colormaps = ['Blues', 'Oranges', 'Greens', 'Purples', 'Reds']
+        
+        # Ensure all colormaps show masked entries as white
+        for cm in colormaps:
+            plt.get_cmap(cm).set_bad('white')
+        
+        # Configuration
+        load_string = "test" if testing else "evaluation"
+        eval_K = [1, 3, 5, 7, 9]
+        n_bins = 70  # bins for delivery_time heatmap
+        
+        # Define the two comparisons
+        comparisons = [
+            ("dir0_jam0", "dir0_jam1", "Isotropic: No Jammer vs Jammer"),
+            ("dir1_jam0", "dir1_jam1", "Directed: No Jammer vs Jammer"),
+        ]
+        
+        # Create 1x2 figure
+        fig, axes = plt.subplots(1, 2, figsize=(14, 5))
+        
+        metric_key = 'delivery_time'
+        
+        # Process each comparison
+        for col_idx, (scenario1, scenario2, comparison_title) in enumerate(comparisons):
+            result_dir1 = os.path.join("Testing" if testing else "Evaluation", "Testing_results" if testing else "Evaluation_results", f"{scenario1}_cpos0.5_cphi0.1")
+            result_dir2 = os.path.join("Testing" if testing else "Evaluation", "Testing_results" if testing else "Evaluation_results", f"{scenario2}_cpos0.5_cphi0.1")
+
+
+            ax = axes[col_idx]
+            
+            # Extract directed and jammer flags from scenario names
+            dir1 = int(scenario1[3])
+            jam1 = int(scenario1[-1])
+            dir2 = int(scenario2[3])
+            jam2 = int(scenario2[-1])
+            
+            # Load results for both scenarios
+            results1_dict = {}
+            results2_dict = {}
+            
+            for k in eval_K:
+                # Load scenario 1 (no jammer)
+                result_file1 = os.path.join(result_dir1, "MAPPO", 
+                    f"MAPPO_{load_string}_results_K{k}_cpos{c_pos}_cphi{c_phi}_n{row_end}_dir{dir1}_jam{jam1}.csv")
+                if os.path.exists(result_file1):
+                    data1 = pd.read_csv(result_file1)
+                    results1_dict[k] = data1.to_dict(orient='records')
+                    print(f"Loaded {result_file1}: {len(results1_dict[k])} records")
+                else:
+                    print(f"File not found: {result_file1}")
+                
+                # Load scenario 2 (with jammer)
+                result_file2 = os.path.join(result_dir2, "MAPPO", 
+                    f"MAPPO_{load_string}_results_K{k}_cpos{c_pos}_cphi{c_phi}_n{row_end}_dir{dir2}_jam{jam2}.csv")
+                if os.path.exists(result_file2):
+                    data2 = pd.read_csv(result_file2)
+                    results2_dict[k] = data2.to_dict(orient='records')
+                    print(f"Loaded {result_file2}: {len(results2_dict[k])} records")
+                else:
+                    print(f"File not found: {result_file2}")
+            
+            # Compute axis limits for this comparison
+            all_vals1 = []
+            all_vals2 = []
+            
+            for k in eval_K:
+                if k in results1_dict and k in results2_dict:
+                    r1 = results1_dict[k]
+                    r2 = results2_dict[k]
+                    
+                    v1 = np.array([x.get(metric_key, np.nan) for x in r1 if metric_key in x])
+                    v2 = np.array([x.get(metric_key, np.nan) for x in r2 if metric_key in x])
+                    all_vals1.extend(v1)
+                    all_vals2.extend(v2)
+            
+            if all_vals1 and all_vals2:
+                min_val = min(np.min(all_vals1), np.min(all_vals2))
+                max_val = max(np.max(all_vals1), np.max(all_vals2))
+                # For delivery_time, ensure min starts at 0
+                min_val = 0
+            else:
+                min_val, max_val = 0, 100
+            
+            bins = np.linspace(min_val, max_val, n_bins)
+            
+            # Compute heatmaps for each K
+            heatmaps_by_k = {}
+            
+            for k in eval_K:
+                if k in results1_dict and k in results2_dict:
+                    r1 = results1_dict[k]
+                    r2 = results2_dict[k]
+                    m = min(len(r1), len(r2))
+                    r1, r2 = r1[:m], r2[:m]
+                    
+                    v1 = np.array([x[metric_key] for x in r1 if metric_key in x])
+                    v2 = np.array([x[metric_key] for x in r2 if metric_key in x])
+                    
+                    xb = np.digitize(v1, bins) - 1
+                    yb = np.digitize(v2, bins) - 1
+                    
+                    H = np.zeros((n_bins-1, n_bins-1))
+                    for xi, yi in zip(xb, yb):
+                        if 0 <= xi < n_bins-1 and 0 <= yi < n_bins-1:
+                            H[yi, xi] += 1
+                    
+                    heatmaps_by_k[k] = H
+                    print(f"  K={k}: {H.sum()} total counts in heatmap")
+            
+            # Plot each K's normalized heatmap
+            threshold = 0.05
+            for k_idx, k in enumerate(eval_K):
+                if k not in heatmaps_by_k:
+                    continue
+                
+                H = heatmaps_by_k[k]
+                k_max = max(H.max(), 1)  # Per-K normalization
+                H_norm = H / k_max
+                
+                # Mask low intensities → white
+                H_mask = np.ma.masked_less(H_norm, threshold)
+                
+                cmap = plt.get_cmap(colormaps[k_idx % len(colormaps)])
+                
+                alpha_val = 0.8
+                im = ax.imshow(H_mask, origin='lower', cmap=cmap,
+                            extent=[min_val, max_val, min_val, max_val],
+                            alpha=alpha_val, interpolation='nearest')
+            
+            # Plot decorations
+            ax.plot([min_val, max_val], [min_val, max_val],
+                    'r--', alpha=0.4, linewidth=1.2)
+            
+            ax.set_aspect('equal')
+            max_val = 70
+            ax.set_xlim(min_val, max_val)
+            ax.set_ylim(min_val, max_val)
+            
+            # Ticks
+            fontsize = 14
+            ticks = np.linspace(min_val, max_val, 5)
+            labels = [f"{t:.0f}" for t in ticks]
+            
+            ax.set_xticks(ticks)
+            ax.set_xticklabels(labels, rotation=0, ha='right', fontsize=fontsize)
+            ax.set_yticks(ticks)
+            ax.set_yticklabels(labels, fontsize=fontsize)
+            
+            # Labels
+            ax.set_xlabel(f'{scenario1.upper()}', fontsize=fontsize, fontweight='bold')
+            ax.set_ylabel(f'{scenario2.upper()}', fontsize=fontsize, fontweight='bold')
+            ax.set_title(comparison_title, fontsize=fontsize, fontweight='bold')
+        
+        plt.subplots_adjust(wspace=0.3, hspace=0.25, left=0.1, right=0.95, top=0.88, bottom=0.12)
+        
+        # Create shared K legend at the bottom
+        handles_k = [
+            plt.Rectangle((0, 0), 1, 1,
+                          color=plt.get_cmap(colormaps[i % len(colormaps)])(0.7),
+                          label=f'$K$={k}')
+            for i, k in enumerate(eval_K)
+        ]
+        fig.legend(handles=handles_k, fontsize=14, loc='lower center', ncol=len(eval_K),
+                   bbox_to_anchor=(0.5, -0.05), frameon=True, bbox_transform=fig.transFigure)
+        
+        # Save plot
+        plot_dir_32 = f"Media/Figures/Heatmaps/MAPPO_jammer_effect"
+        if plot_dir_32:
+            os.makedirs(plot_dir_32, exist_ok=True)
+            plot_filename = f"MAPPO_jammer_effect_delivery_time_K{'_'.join(map(str, eval_K))}.pdf"
+            plot_path = os.path.join(plot_dir_32, plot_filename)
+            plt.savefig(plot_path, format='pdf', dpi=300, bbox_inches='tight',
+                        facecolor='white', edgecolor='none', transparent=False)
+            print(f"\nSaved figure to: {plot_path}")
+        else:
+            plt.show()
+
+    elif eval_mode == 33:  # Baseline vs MAPPO for all 4 scenarios - 4x3 grid
+        """
+        Create a 4x3 heatmap grid comparing baseline vs MAPPO across all 4 scenarios.
+        Rows: 4 scenarios (dir0_jam0, dir0_jam1, dir1_jam0, dir1_jam1)
+        Columns: 3 metrics (value, delivery_time, agent_sum_distance)
+        """
+        
+        # Configuration
+        load_string = "test" if testing else "evaluation"
+        eval_K = [1, 3, 5, 7, 9]
+        
+        # Define all four scenarios
+        scenarios_list = [
+            (False, False, "dir0_jam0"),
+            (False, True, "dir0_jam1"),
+            (True, False, "dir1_jam0"),
+            (True, True, "dir1_jam1")
+        ]
+        
+        # Load results for all scenarios
+        scenarios_dict = {}
+        
+        print("Loading baseline and MAPPO results for all scenarios...")
+        for directed_tx, jammer, scenario_name in scenarios_list:
+            conf_string = get_config_string(directed_tx, jammer, c_pos=c_pos, c_phi=c_phi)
+            result_dir_scenario = os.path.join("Testing" if testing else "Evaluation", 
+                                               "Testing_results" if testing else "Evaluation_results",
+                                               conf_string)
+            
+            # Load baseline for this scenario
+            baseline_dict = {}
+            for k in eval_K:
+                baseline_file = os.path.join(result_dir_scenario, "Baseline",
+                    f"baseline_{load_string}_results_K{k}_cpos{c_pos}_cphi{c_phi}_n{row_end}_dir{int(directed_tx)}_jam{int(jammer)}.csv")
+                
+                if os.path.exists(baseline_file):
+                    data = pd.read_csv(baseline_file)
+                    baseline_dict[k] = data.to_dict(orient='records')
+                    print(f"  Loaded baseline {scenario_name} K{k}: {len(baseline_dict[k])} records")
+                else:
+                    print(f"  Baseline file not found: {baseline_file}")
+            
+            # Load MAPPO for this scenario
+            mappo_dict = {}
+            for k in eval_K:
+                mappo_file = os.path.join(result_dir_scenario, "MAPPO",
+                    f"MAPPO_{load_string}_results_K{k}_cpos{c_pos}_cphi{c_phi}_n{row_end}_dir{int(bool(directed_tx))}_jam{int(bool(jammer))}.csv")
+                
+                if os.path.exists(mappo_file):
+                    data = pd.read_csv(mappo_file)
+                    mappo_dict[k] = data.to_dict(orient='records')
+                    print(f"  Loaded MAPPO {scenario_name} K{k}: {len(mappo_dict[k])} records")
+                else:
+                    print(f"  MAPPO file not found: {mappo_file}")
+            
+            scenarios_dict[scenario_name] = (baseline_dict, mappo_dict)
+        
+        # Create plot directory
+        plot_dir_33 = "Media/Figures/Heatmaps/Baseline_vs_MAPPO_scenarios"
+        
+        # Call the plotting function
+        print(f"\nCalling plot_mappo_vs_baseline_scenarios()...")
+        plot_mappo_vs_baseline_scenarios(scenarios_dict, eval_K, plot_dir=plot_dir_33)
+
+    elif eval_mode == 34:  # Baseline vs MAPPO trajectory comparison with multiple custom rows
+        """
+        Create n x 2 trajectory comparison plots (baseline vs MAPPO) for the current scenario.
+        Uses directed_transmission and jammer_on parameters from main().
+        n = number of rows (episodes) specified in the rows_list.
+        Each row shows baseline vs MAPPO for the same episode.
+        Uses the same graphics as eval_mode 29.
+        """
+        
+        import matplotlib.pyplot as plt
+        import matplotlib.patches as patches
+        
+        k = 7
+        
+        # Specify which episodes (rows) to plot
+        rows_list = [640, 1100, 1260]  # Episodes to compare  # 640, 1100, 1260
+        n_rows = len(rows_list)
+        
+        sns.set_style("whitegrid")
+        sns.set_palette("husl")
+        
+        plt.rcParams['text.usetex'] = True
+        plt.rcParams['font.family'] = 'serif'
+        plt.rcParams['font.serif'] = ['Computer Modern']
+        plt.rcParams['axes.labelsize'] = 12
+        plt.rcParams['xtick.labelsize'] = 10
+        plt.rcParams['ytick.labelsize'] = 10
+        plt.rcParams['legend.fontsize'] = 11
+        plt.rcParams['figure.titlesize'] = 18
+        
+        
+        Rcom = 1.0
+        agent_color = 'orange'
+        passive_color = 'black'
+        marker_scale = max(0.3, 1.0 - (k - 1) * 0.03)
+        
+        # Create figure: n_rows x 2 columns (baseline, MAPPO)
+        fig, axes = plt.subplots(n_rows, 2, figsize=(12, 5*n_rows))
+        
+        # Ensure axes is always 2D even for single row
+        if n_rows == 1:
+            axes = axes.reshape(1, -1)
+        
+        # First pass: collect all coordinates for common axis limits
+        all_x_coords = []
+        all_y_coords = []
+        R_common = 10.0
+        
+        conf_string = get_config_string(directed_transmission, jammer_on, c_pos, c_phi)
+        
+        for row in rows_list:
+            # Load baseline
+            if testing:
+                baseline_dir = os.path.join("Testing/Trajectories", conf_string, "Baseline")
+            else:
+                baseline_dir = os.path.join("Evaluation/Trajectories", conf_string, "Baseline")
+            baseline_file = os.path.join(baseline_dir, f"baseline_K{k}_row{row}_dir{int(directed_transmission)}_jam{int(jammer_on)}_trajectory.csv")
+            
+            if not os.path.exists(baseline_file):
+                generate_baseline_trajectory(k, row, data_dir, c_pos, c_phi, directed_transmission, jammer_on, testing)
+            
+            try:
+                traj = pd.read_csv(baseline_file)
+                R_common = traj['R'].iloc[0] if 'R' in traj.columns else 10.0
+                for agent_id in range(1, k+1):
+                    col_x = f'agent{agent_id}_x'
+                    col_y = f'agent{agent_id}_y'
+                    if col_x in traj.columns:
+                        all_x_coords.extend(traj[col_x].dropna().values)
+                        all_y_coords.extend(traj[col_y].dropna().values)
+                if 'jammer_x' in traj.columns:
+                    all_x_coords.extend(traj['jammer_x'].dropna().values)
+                    all_y_coords.extend(traj['jammer_y'].dropna().values)
+            except:
+                pass
+        
+        # Compute common axis limits (same as eval_mode 21/29)
+        Ra = 0.6 * R_common
+        cap_radius = 1.5 * Rcom
+        cap_height = 3 * Rcom
+        x_min = -cap_radius - 0.1 * Rcom
+        x_max = R_common + cap_radius + 1.5 * Rcom
+        y_min = -0.78 * Ra
+        y_max = 0.8 * Ra
+        
+        # Helper function to plot a scenario
+        def _plot_scenario(ax, traj, k, R, directed_tx, jammer_on, Rcom, method_name, agent_color, passive_color, mappo_mode=False):
+            """Plot trajectory for one scenario using eval_mode 21/29 logic."""
+            # Determine agent indexing
+            agent_range = range(0, k) if mappo_mode else range(1, k+1)
+            
+            # Get active agents
+            active_agents = []
+            for agent_id in agent_range:
+                agent_col_has_message = f'agent{agent_id}_has_message'
+                if agent_col_has_message in traj.columns and np.any(traj[agent_col_has_message]):
+                    active_agents.append(agent_id)
+            
+            # Compute transmitter Rcom considering jammer (if active)
+            if jammer_on:
+                t_retrieve = len(traj) - 1
+                for agent_k in agent_range:
+                    agent_col_has_message = f'agent{agent_k}_has_message'
+                    if agent_col_has_message in traj.columns:
+                        msg_array = traj[agent_col_has_message].values
+                        true_indices = np.where(msg_array)[0]
+                        if len(true_indices) > 0:
+                            t_retrieve = min(t_retrieve, true_indices[0])
+                t_retrieve = max(0, t_retrieve - 1)
+                
+                jammer_x = traj['jammer_x'].iloc[t_retrieve] if 'jammer_x' in traj.columns else R/2
+                jammer_y = traj['jammer_y'].iloc[t_retrieve] if 'jammer_y' in traj.columns else 0.0
+                p_jammer = np.array([jammer_x, jammer_y])
+                
+                Rcom_tx = communication_range(theta=0, phi=0, C_dir=0.0, SINR_threshold=1.0, 
+                                            jammer_pos=p_jammer, p_tx=np.array([0, 0]))
+            else:
+                Rcom_tx = Rcom
+                p_jammer = None
+            
+            # Plot transmitter communication range circle with fill
+            tx_circle_fill = patches.Circle((0, 0), radius=Rcom_tx, 
+                                        fill=True, facecolor='blue', alpha=0.25, linewidth=1.5, edgecolor='blue')
+            ax.add_patch(tx_circle_fill)
+            
+            # Plot jammer capsule if active
+            if jammer_on:
+                cap_height = 3 * Rcom
+                cap_radius = 1.5 * Rcom
+                ax.plot([0, R], [cap_height/2, cap_height/2], color='red', lw=2, alpha=0.4)
+                ax.plot([0, R], [-cap_height/2, -cap_height/2], color='red', lw=2, alpha=0.4)
+                theta_left = np.linspace(np.pi/2, 3*np.pi/2, 100)
+                ax.plot(cap_radius * np.cos(theta_left), cap_radius * np.sin(theta_left), 
+                    color='red', lw=2, alpha=0.4)
+                theta_right = np.linspace(-np.pi/2, np.pi/2, 100)
+                ax.plot(R + cap_radius * np.cos(theta_right), cap_radius * np.sin(theta_right), 
+                    color='red', lw=2, alpha=0.4)
+            
+            # Plot agent trajectories and communication ranges
+            for agent_id in agent_range:
+                col_x = f'agent{agent_id}_x'
+                col_y = f'agent{agent_id}_y'
+                col_phi = f'agent{agent_id}_phi'
+                agent_col_has_message = f'agent{agent_id}_has_message'
+                
+                if col_x not in traj.columns or col_y not in traj.columns:
+                    continue
+                
+                initial_x = traj[col_x].iloc[0]
+                initial_y = traj[col_y].iloc[0]
+                final_x = traj[col_x].iloc[-1]
+                final_y = traj[col_y].iloc[-1]
+                
+                is_passive = agent_id not in active_agents
+                if is_passive:
+                    # Passive agent: show initial position only
+                    ax.scatter(initial_x, initial_y, s=80*marker_scale, alpha=0.8, 
+                              edgecolors='darkgrey', linewidth=1.5*marker_scale, 
+                              color=passive_color, marker='o', zorder=4)
+                else:
+                    # Active agent: show trajectory with fading
+                    ax.scatter(initial_x, initial_y, s=60*marker_scale, alpha=0.5, 
+                              edgecolors='darkgrey', linewidth=1*marker_scale, 
+                              color='grey', marker='o', zorder=3)
+                    
+                    # Find message reception time
+                    t_receive_message = None
+                    if agent_col_has_message in traj.columns:
+                        msg_array = traj[agent_col_has_message].values
+                        true_indices = np.where(msg_array)[0]
+                        if len(true_indices) > 0:
+                            t_receive_message = true_indices[0]
+                    
+                    # Plot trajectory segments with fading
+                    x_coords = traj[col_x].values
+                    y_coords = traj[col_y].values
+                    t_max = len(x_coords) - 1
+                    
+                    for t in range(len(x_coords) - 1):
+                        if t_receive_message is not None and t >= t_receive_message:
+                            segment_color = agent_color
+                            alpha_val = 0.2 + 0.8 * (t / max(t_max, 1))
+                        else:
+                            segment_color = 'grey'
+                            alpha_val = 0.2
+                        
+                        ax.plot(x_coords[t:t+2], y_coords[t:t+2], 
+                               alpha=alpha_val, linewidth=2, linestyle='--', 
+                               color=segment_color, zorder=-1)
+                    
+                    # Plot final position
+                    ax.scatter(final_x, final_y, s=100*marker_scale, alpha=0.8, 
+                              edgecolors='darkorange', linewidth=2*marker_scale, 
+                              color=agent_color, marker='o', zorder=11)
+                    
+                    # Compute jammer position at agent's final time if jammer active
+                    if jammer_on:
+                        t_stop = len(traj) - 1
+                        for t in range(len(traj)-1, 0, -1):
+                            if (traj[col_x].iloc[t] != traj[col_x].iloc[t-1] or
+                                traj[col_y].iloc[t] != traj[col_y].iloc[t-1]):
+                                t_stop = t
+                                break
+                        jammer_x = traj['jammer_x'].iloc[t_stop] if 'jammer_x' in traj.columns else R/2
+                        jammer_y = traj['jammer_y'].iloc[t_stop] if 'jammer_y' in traj.columns else 0.0
+                        p_agent_jammer = np.array([jammer_x, jammer_y])
+                    else:
+                        p_agent_jammer = None
+                    
+                    # Plot communication radius at final position
+                    # Case 1: No directed, No jammer
+                    if not directed_tx and not jammer_on:
+                        Rcom_k = Rcom
+                        agent_rcom_circle_fill = patches.Circle((final_x, final_y), radius=Rcom_k, 
+                                                        color=agent_color, fill=True, 
+                                                        linewidth=0, alpha=0.25, zorder=2, facecolor=agent_color)
+                        ax.add_patch(agent_rcom_circle_fill)
+                        agent_rcom_circle_edge = patches.Circle((final_x, final_y), radius=Rcom_k, 
+                                                        color=agent_color, fill=False, 
+                                                        linewidth=2, alpha=0.7, zorder=2)
+                        ax.add_patch(agent_rcom_circle_edge)
+                    
+                    # Case 2: No directed, With jammer
+                    elif not directed_tx and jammer_on:
+                        Rcom_k = communication_range(theta=0, phi=0, C_dir=0.0, SINR_threshold=1.0, 
+                                            jammer_pos=p_agent_jammer, p_tx=np.array([final_x, final_y]))
+                        agent_rcom_circle_fill = patches.Circle((final_x, final_y), radius=Rcom_k, 
+                                                        color=agent_color, fill=True, 
+                                                        linewidth=0, alpha=0.25, zorder=2, facecolor=agent_color)
+                        ax.add_patch(agent_rcom_circle_fill)
+                        agent_rcom_circle_edge = patches.Circle((final_x, final_y), radius=Rcom_k, 
+                                                        color=agent_color, fill=False, 
+                                                        linewidth=2, alpha=0.7, zorder=2)
+                        ax.add_patch(agent_rcom_circle_edge)
+                    
+                    # Case 3 & 4: Directed transmission (with and without jammer)
+                    else:
+                        if col_phi in traj.columns:
+                            final_phi = traj[col_phi].iloc[-1]
+                            if jammer_on:
+                                plot_antenna_lobe(ax, np.array([final_x, final_y]), final_phi, Rcom, 
+                                                jammer_pos=p_agent_jammer, color=agent_color, fill=True)
+                            else:
+                                plot_antenna_lobe(ax, np.array([final_x, final_y]), final_phi, Rcom, 
+                                                color=agent_color, fill=True)
+            
+            # Plot transmitter at origin
+            ax.scatter(0, 0, s=200*marker_scale, marker='s', color='blue', 
+                      alpha=0.8, edgecolors='darkblue', linewidth=2*marker_scale, zorder=5)
+            
+            # Plot receiver
+            ax.scatter(R, 0, s=200*marker_scale, marker='s', color='green', 
+                      alpha=0.8, edgecolors='darkgreen', linewidth=2*marker_scale, zorder=5)
+            
+            # Plot jammer trajectory if present
+            if jammer_on and 'jammer_x' in traj.columns:
+                jammer_data = traj[['jammer_x', 'jammer_y']].dropna()
+                if len(jammer_data) > 0:
+                    jammer_x_coords = jammer_data['jammer_x'].values
+                    jammer_y_coords = jammer_data['jammer_y'].values
+                    
+                    jammer_t_max = len(jammer_x_coords) - 1
+                    for t in range(len(jammer_x_coords) - 1):
+                        alpha_val = 0.2 + 0.8 * (t / max(jammer_t_max, 1))
+                        ax.plot(jammer_x_coords[t:t+2], jammer_y_coords[t:t+2], 
+                               alpha=alpha_val, linewidth=1.5, linestyle='--', color='red', zorder=0)
+                    
+                    # Plot final jammer position
+                    final_jammer_x = jammer_x_coords[-1]
+                    final_jammer_y = jammer_y_coords[-1]
+                    ax.scatter(final_jammer_x, final_jammer_y, s=150*marker_scale, marker='^', 
+                              color='red', alpha=0.8, edgecolors='darkred', linewidth=1.5*marker_scale, zorder=10)
+        
+        # Second pass: plot all rows
+        for row_idx, row in enumerate(rows_list):
+            # Plot baseline (left column)
+            ax_baseline = axes[row_idx, 0]
+            if testing:
+                baseline_dir = os.path.join("Testing/Trajectories", conf_string, "Baseline")
+            else:
+                baseline_dir = os.path.join("Evaluation/Trajectories", conf_string, "Baseline")
+            
+            baseline_file = os.path.join(baseline_dir, f"baseline_K{k}_row{row}_dir{int(directed_transmission)}_jam{int(jammer_on)}_trajectory.csv")
+            
+            if os.path.exists(baseline_file):
+                try:
+                    traj = pd.read_csv(baseline_file)
+                    R = traj['R'].iloc[0] if 'R' in traj.columns else 10.0
+                    _plot_scenario(ax_baseline, traj, k, R, directed_transmission, jammer_on, Rcom, "Baseline", agent_color, passive_color)
+                except Exception as e:
+                    print(f"Error loading baseline row {row}: {e}")
+            else:
+                print(f"Baseline file not found: {baseline_file}")
+            
+            ax_baseline.set_xlim(x_min, x_max)
+            ax_baseline.set_ylim(y_min, y_max)
+            ax_baseline.set_aspect('equal')
+            ax_baseline.grid(False)
+            ax_baseline.set_xticks([])
+            ax_baseline.set_yticks([])
+            ax_baseline.spines['top'].set_visible(False)
+            ax_baseline.spines['right'].set_visible(False)
+            ax_baseline.spines['bottom'].set_visible(False)
+            ax_baseline.spines['left'].set_visible(False)
+            if row_idx == 0:
+                ax_baseline.set_title("Baseline", fontsize=18, fontweight='bold')
+            
+            # Plot MAPPO (right column)
+            ax_mappo = axes[row_idx, 1]
+            mappo_dir = os.path.join("Evaluation/Trajectories", conf_string, "MAPPO")
+            mappo_file = os.path.join(mappo_dir, f"MAPPO_evaluation_results_K{k}_cpos{c_pos}_cphi{c_phi}_n10000_dir{int(bool(directed_transmission))}_jam{int(bool(jammer_on))}")
+            
+            try:
+                episodes_dict = read_runs(mappo_file)
+                full_df = convert_dicts_to_df(episodes_dict)
+                traj = select_episode(full_df, row)
+                R = traj['R'].iloc[0] if 'R' in traj.columns else 10.0
+                _plot_scenario(ax_mappo, traj, k, R, directed_transmission, jammer_on, Rcom, "MAPPO", agent_color, passive_color, mappo_mode=True)
+            except Exception as e:
+                print(f"Error loading MAPPO row {row}: {e}")
+            
+            ax_mappo.set_xlim(x_min, x_max)
+            ax_mappo.set_ylim(y_min, y_max)
+            ax_mappo.set_aspect('equal')
+            ax_mappo.grid(False)
+            ax_mappo.set_xticks([])
+            ax_mappo.set_yticks([])
+            ax_mappo.spines['top'].set_visible(False)
+            ax_mappo.spines['right'].set_visible(False)
+            ax_mappo.spines['bottom'].set_visible(False)
+            ax_mappo.spines['left'].set_visible(False)
+            if row_idx == 0:
+                ax_mappo.set_title("MAPPO", fontsize=18, fontweight='bold')
+        
+        # Create common legend
+        legend_handles = [
+            plt.Line2D([0], [0], marker='s', color='w', markerfacecolor='blue', 
+                      markeredgecolor='darkblue', markersize=10, label=r'Sender', markeredgewidth=1.5),
+            plt.Line2D([0], [0], marker='s', color='w', markerfacecolor='green', 
+                      markeredgecolor='darkgreen', markersize=10, label=r'Receiver', markeredgewidth=1.5),
+            plt.Line2D([0], [0], marker='o', color='w', markerfacecolor='orange', 
+                      markeredgecolor='darkorange', markersize=8, label=r'$\mathrm{Agent}$', markeredgewidth=1.5),
+            plt.Line2D([0], [0], marker='o', color='w', markerfacecolor='grey', 
+                      markeredgecolor='darkgrey', markersize=8, label=r'Agent init.', markeredgewidth=1.5),
+            plt.Line2D([0], [0], color='orange', linewidth=2, linestyle='--', label=r'Has message'),
+            plt.Line2D([0], [0], color='grey', linewidth=2, linestyle='--', label=r'No message'),
+            plt.Line2D([0], [0], marker='^', color='w', markerfacecolor='red', 
+                      markeredgecolor='darkred', markersize=8, label=r'Jammer', markeredgewidth=1.5),
+            plt.Line2D([0], [0], color='red', linewidth=2, alpha=0.4, label=r'Jammer capsule'),
+        ]
+        
+        # Add common legend at bottom
+        fig.legend(handles=legend_handles, loc='lower center', fontsize=14, 
+                  frameon=True, fancybox=True, shadow=False, ncol=4, 
+                  bbox_to_anchor=(0.56, 0.15))
+        
+        # left=0.15, right=0.95, top=0.95, bottom=0.12, wspace-, hspace-height
+        plt.subplots_adjust(left=0.15, right=0.95, top=0.95, bottom=0.12, wspace=0.1, hspace=-0.4)
+        
+        plot_dir_34 = os.path.join(plot_dir, "Trajectory_Comparisons", conf_string)
+        os.makedirs(plot_dir_34, exist_ok=True)
+        
+        rows_str = "_".join([f"r{v}" for v in rows_list])
+        save_path = os.path.join(plot_dir_34, f"baseline_vs_MAPPO_K{k}_{rows_str}.pdf")
+        plt.savefig(save_path, format='pdf', dpi=300, bbox_inches='tight')
+        print(f"Saved to {save_path}")
+        plt.close()
+
 
 if __name__ == "__main__":
     main()
