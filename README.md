@@ -5,6 +5,8 @@ Simulator for testing out the information relaying environemnt and training the 
 
 ![demo gif](Media/Animations/Baseline/Trajectories/Comparison_all_scenarios/baseline_K5_row1_all_scenarios.gif)
 
+## Running the simulator in demo mode
+1. Run Info_relay.py with or without the --keyboard flag to run the environment without an agent
 
 ## Running the simulator with BenchMARL (for training)
 Training of the info relay environment in the easiest way possible is currently using [BenchMARL](https://github.com/facebookresearch/BenchMARL).
@@ -25,7 +27,14 @@ In order to run the simulator together with BenchMARL, the following steps have 
 
 3. Now the info relay env and BenchMARL should be working and training can be run using 
     - python BenchMARL/benchmarl/run.py algorithm=mappo task=customenv/info_relay
-    Changing the training parameters is done inside the benchmarl_conf folder. Experiment parameters (like lr and number of training episodes) are changed in the base_experiment.yaml file, while parameters in the info relay env (like the number of agents or if a jammer is to be used) are changed in info_relay.yaml. The files inside the BenchMARL folder that are a part of the info relay env are symbolic links of the files in this repository, as such, changes made in the files here are automatically applied inside BenchMARL.  
+    Changing the training parameters is done inside the benchmarl_conf folder. Experiment parameters (like lr and number of training episodes) are changed in the base_experiment.yaml file, while parameters in the info relay env (like the number of agents or if a jammer is to be used) are changed in info_relay.yaml. The files inside the BenchMARL folder that are a part of the info relay env are symbolic links of the files in this repository, as such, changes made in the files here are automatically applied inside BenchMARL.
+
+## Running the environment with pre-trained agent
+1. Make sure the repo is cloned with git lfs installed "git lfs install".
+    You will then receive the outputs/ folder containing checkpoints.
+    Run Info-relay-implementation/BenchMARL/benchmarl/evaluate.py with
+    a checkpioint file as argument. To run on evaluation set, change the default
+    parameter boolean pre_determined_scenario in info_relay-env_v2.py to True.
 
 
 ![screenshot](Info-relay-implementation/Figures/Info_relay_overview.png)
