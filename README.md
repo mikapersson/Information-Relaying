@@ -38,5 +38,7 @@ In order to run the simulator together with BenchMARL, the following steps have 
     a checkpioint file as argument. To run on evaluation set, change the default
     parameter boolean pre_determined_scenario in info_relay-env_v2.py to True.
 
+## Running the baseline
+[TODO 23 Jan]
 
 ![screenshot](Info-relay-implementation/Figures/Info_relay_overview.png)
