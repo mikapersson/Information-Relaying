@@ -1,7 +1,7 @@
 
 # Information Relaying Environment 
 
-Simulator for testing out the information relaying environemnt and training the agents using MARL. 
+Information relaying environment simulator, solving the information relaying problem with trained agents using MARL and hand-crafted baseline. 
 
 ![demo gif](Media/Animations/Baseline/Trajectories/Comparison_all_scenarios/baseline_K5_row1_all_scenarios.gif)
 
