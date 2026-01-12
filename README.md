@@ -1,7 +1,9 @@
 
 # Information Relaying Environment 
 
-Information relaying environment simulator, solving the information relaying problem with trained agents using MARL and hand-crafted baseline. 
+Information relaying game: collaborative game in which agents relay one message from a transmitting base station (blue square) to a receiving base (green square), preferably as fast as possible with minimum movement.  
+
+The repository contains the information relaying environment simulator, a multi-agent reinforcement learning (MARL) framework ([BenchMARL](https://github.com/facebookresearch/BenchMARL)) for training agents to solve the information relaying problem, and hand-crafted baseline. 
 
 ![demo gif](Media/Animations/Baseline/Trajectories/Comparison_all_scenarios/baseline_K5_row1_all_scenarios.gif)
 
