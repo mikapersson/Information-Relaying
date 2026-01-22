@@ -13,9 +13,9 @@ import csv
 
 # to be able to import from current directory in both linux and windows
 try:
-    from Info_relay_classes import Drone, Base, Emitter, World, EvaluationLogger#, Message  
+    from Info_relay_classes import Drone, Base, Emitter, World, EvaluationLogger 
 except ImportError:
-    from .Info_relay_classes import Drone, Base, Emitter, World, EvaluationLogger#, Message
+    from .Info_relay_classes import Drone, Base, Emitter, World, EvaluationLogger
 
 from gymnasium.utils import seeding
 
@@ -25,36 +25,8 @@ import pygame
 import itertools
 
 
-# class of agents (where drones and emitters(bases are included)) - boolean that shows dynamics or not - future we can have ground/air as well
-# vectorized stepping function 
-
-# maybe store all agents (drones + bases + emitters)
-
-# fullständig info, fixed antal agenter i början - coop spel
-
- 
 alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 
-##ide: ska det vara egna agent / emitter classer, eller ska allt ingå i env:et?
-
-
-# BIG TODO (optional) - flytta ut, make_world, reset_world, observe, reward, terminate med hjälpfunktioner till egna classer -
-# - en klass per scenario. Detta liknar det som är byggt i pettingzoo MPE environment. 
-# likt hur det är kodat i mapparna under https://github.com/Farama-Foundation/PettingZoo/tree/master/pettingzoo/mpe 
-
-# TODO(SAMSAM) - lägg till fiende och störsändningsfunktionalitet. Fiendens state (position) ska uppdateras i info_relay_classes likt agenterna.
-# TODO(SAMSAM?) - baserna börjar endast på x-axeln. Samma bas sänder varje spel - börjar alltid i origo
-
-# TODO - Adam har funderingar kring att "få en känsla kring valet av parametrar och slumpning av begynnelsevärde", där ingår att han vill
-# implementera en baseline.
-
-# TODO - dubbelkolla belöningsfunktionen
-
-# TODO - Enable gpu träning ? Kanske inte behövs
-
-# TODO (optional) - Låt agenter dela med avsikt till andra agenter. 
-
-# TODO (optional & low prio) - Beslut om position snarare än färdriktning
 
 class Info_relay_env(ParallelEnv):
     metadata = {
@@ -91,7 +63,7 @@ class Info_relay_env(ParallelEnv):
 
         self.SNR_threshold = 1 # threshold for signal detection
 
-        self.world_size = world_size # the world will be created as square. - maybe not used now
+        self.world_size = world_size 
 
         self.num_CL_episodes = num_CL_episodes # 0 means deactivated
         self.num_r_help_episodes = num_r_help_episodes
@@ -99,18 +71,18 @@ class Info_relay_env(ParallelEnv):
         self.using_half_velocity = using_half_velocity # if the agents are able to choose from v_max and v_max/2
 
         self.h = step_size
-        self.max_iter = max_cycles # maximum amount of iterations before the world truncates - OBS renamed the inupt to more closely match benchmarl
+        self.max_iter = max_cycles # maximum amount of iterations before the world truncates
 
-        self._seed() # maybe set up seed in another way?? now imprting from gymnasium
+        self._seed()
 
         self.num_messages = num_messages # to keep track of the number of messages = to the number of message buffer slots the agents will have
 
         # set all World variables first - contains all enteties
         self.world = self.make_world(num_agents, num_bases, num_emitters)
 
-        self.continuous_actions = continuous_actions # indicies if continous or discrete actions are used
+        self.continuous_actions = continuous_actions # indicates if continous or discrete actions are used
         self.one_hot_vector = one_hot_vector # if continous - this shows if one hot vector or single value representation of actions (output from NN) are used
-        self.antenna_used = antenna_used #OBS ändra när antennen ska styras igen
+        self.antenna_used = antenna_used 
         self.pre_determined_scenario = pre_determined_scenario
         if self.pre_determined_scenario:
             #self.eval_state_file = f"initial_state_pool/evaluation_states_K{self.n_agents}_n10000.csv"
@@ -122,9 +94,8 @@ class Info_relay_env(ParallelEnv):
             self.read_scenario_csv()
         else:
             self.evaluation_logger = None
-        self.com_used = com_used #OBS - communications can be turned of to test just the movement in different tasks
+        self.com_used = com_used # communications can be turned of - only movement
         self.observe_self = observe_self
-        self.angle_coord_rotation = 0 # declared as a class variabel to be reach in observation and in setting actions
 
         self.base_always_transmitting = base_always_transmitting # decides if the base is sending every time step. If false, the base send sporadically
 
@@ -133,8 +104,7 @@ class Info_relay_env(ParallelEnv):
 
         dim_p = self.world.dim_p
         
-        # Ny kommentar: används ej inne i klassen - vet ej om benchmarl letar efter detta så avvaktar med att ta bort till testat med benchmarl
-        # OBS really need to dubble check the state space - what is to be included - is it neccessary??
+
         state_dim = dim_p * (self.n_agents - 1) + dim_p * self.num_bases + self.n_agents
         self.state_space = spaces.Box(
             low=-np.float32(np.inf),
@@ -153,7 +123,7 @@ class Info_relay_env(ParallelEnv):
 
         # sets the action spaces for the two different continous action space cases
         if self.continuous_actions:
-            if self.one_hot_vector: # inte updaterad
+            if self.one_hot_vector: # not updated
                 self.action_spaces = {
                 agent.name: spaces.Box(
                     low=np.concatenate((
@@ -183,7 +153,7 @@ class Info_relay_env(ParallelEnv):
 
             if using_half_velocity:
                 num_velocity_actions = 5
-                # Define the actual velocity magnitudes (for checking combinations)
+                # Define the actual velocity magnitudes - for checking combinations
                 velocity_values = [0.0, -1.0, 1.0, -0.5, 0.5]  # normalized by v_max
             else:
                 num_velocity_actions = 3
@@ -191,7 +161,7 @@ class Info_relay_env(ParallelEnv):
 
             num_angle_actions = 3  # should be at least 3 (and odd) if used
 
-            if not self.antenna_used:  # the agents do not use the antenna - isotropic transmission
+            if not self.antenna_used:  # the agents do not use directed antennas - isotropic transmission
                 num_angle_actions = 1
             self.different_discrete_actions = [range(num_velocity_actions),
                                    range(num_velocity_actions),
@@ -199,13 +169,13 @@ class Info_relay_env(ParallelEnv):
 
             all_combinations = list(itertools.product(*self.different_discrete_actions))
 
-            # Filter out disallowed combinations
+            # Filter out non-allowed combinations
             allowed_combinations = []
             for vx_idx, vy_idx, angle_idx in all_combinations:
                 vx = velocity_values[vx_idx]
                 vy = velocity_values[vy_idx]
 
-                # Disallow when one is full (1.0) and the other is half (0.5)
+                # Not allow when one is full (1.0) and the other is half (0.5)
                 if (abs(vx) == 1.0 and abs(vy) == 0.5) or (abs(vx) == 0.5 and abs(vy) == 1.0):
                     continue
 
@@ -224,39 +194,35 @@ class Info_relay_env(ParallelEnv):
 
         self.recived_messages_bases = [] # an attribute that keeps track of all messages recieved by bases THIS timestep    
 
-        self.episode_counter = 0 # checks how many times the environemnt has been reset. Used for continously changing the starting states
+        self.episode_counter = 0 # checks how many times the environemnt has been reset. Used for continously changing the starting states i BenchMARL
 
-
-    # these "world" functions could be included in their own class, Scenario, like in MPE -
-    # - then pass Info_relay_env variables. Can be changed later on if needed/makes the program easyer  
+    # creates the world object and fills it with entities
     def make_world(self, num_agents, num_bases, num_emitters):
         """
         creates a World object that contains all enteties (drones, bases, emitters) in lists
         """
         world = World()
 
-        world.dt = self.h ## step length is transferred to the World
+        world.dt = self.h # step length is transferred to the World
 
-        world.dim_c = 2 # communication dimension, not exactly sure how we will use it yet
+        world.dim_c = 2 # communication dimension
 
         world.agents = [Drone() for _ in range(num_agents)]
         for i, agent in enumerate(world.agents):
             agent.name = f"agent_{i}"
-            agent.size = 0.025/2 #quite small
+            agent.size = 0.025/2 
             agent.max_speed = self.a_max
-            agent.u_range = [self.a_max, self.omega_max] # maximum control range = a_max, omega_max
+            #agent.u_range = [self.a_max, self.omega_max] # maximum control range = a_max, omega_max
             agent.internal_noise = 1 ## set internal noise level
             agent.color = np.array([0, 0.33, 0.67])
             agent.message_buffer_size = self.num_messages
 
-            #agent.transmit_power = 1 # set to reasonable levels
 
         world.emitters = [Emitter() for _ in range(num_emitters)]
         for i, emitter in enumerate(world.emitters):
             emitter.name = f"jammer_{i}"
             emitter.size = 0.025/2
             emitter.max_speed = 0.1
-            agent.u_range = [self.a_max, self.omega_max] # maximum control range = a_max, omega_max
             emitter.internal_noise = 1
             emitter.color = np.array([1.0, 0, 0])            
 
@@ -264,18 +230,13 @@ class Info_relay_env(ParallelEnv):
         world.bases = [Base() for _ in range(num_bases)]
         for i, base in enumerate(world.bases):
             base.name = f"base_{i}"
-            base.size = 0.050/2 # the biggest pieces in the world
+            base.size = 0.050/2 # the biggest entities in the world
             base.color = np.array([0.35, 0.85, 0.83])
-            #base.transmit_power = 1 # set to reasonable levels
-
-        #world.bases[1].silent = True # first scenario is one way communication
-        #world.bases[0].generate_messages = False # the same message all the time
-
 
         return world
 
     def generate_base_positions(self, R):
-        """Generate random base positions with equal spacing.
+        """Generate base positions on the x-axis.
         Used in reset_world to place bases."""
         
         positions = np.array([[0.0, 0.0], [R, 0.0]])
@@ -292,10 +253,10 @@ class Info_relay_env(ParallelEnv):
         center = np.mean(base_positions, axis=0)  # Midpoint of bases
 
         if self.num_CL_episodes > self.episode_counter: # when CL is used
-            # Fraction done
+            
             progress = self.episode_counter / self.num_CL_episodes
 
-            # Height progression
+            # Height progression - increases during CL-phase
             min_height = (spawn_radius / 4) * 2       
             max_height = spawn_radius * 2             
             current_height = min_height + progress * (max_height - min_height)
@@ -360,16 +321,11 @@ class Info_relay_env(ParallelEnv):
         
         return R_max
     
-    def reset_world(self, world, np_random): # np_ranodm should be some sort of seed for reproducability
+    def reset_world(self, world, np_random): 
         """
         Resets the world and all enteties - called inside the reset function.
         Randomly distributes the bases and emitters - all drones start at one of the bases (first in list)
         """
-        for i, emitter in enumerate(world.emitters):
-            #emitter.state.p_pos = np_random.uniform(-self.world_size, self.world_size, world.dim_p)
-            emitter.state.p_pos = np.zeros(world.dim_p)
-            emitter.state.p_vel = np.zeros(world.dim_p)
-
 
         R_max = self.get_max_base_distance(world)    
 
@@ -402,41 +358,32 @@ class Info_relay_env(ParallelEnv):
             
 
         # Compute the midpoint of all bases
-        #base_positions = np.array(positions)
         self.center = np.mean(base_positions, axis=0)  # Midpoint of bases
 
-        # I feel lie the center point should be contained in world but idk
         world.center = self.center
 
-        #radius = self.radius * min(self.episode_counter / 2500, 1) # increases from 0 to 1 
-        #radius = self.radius*2
         spawn_radius = self.R_half*1.2
         #radius = self.radius
 
         agent_positions = self.generate_agent_positions(np_random, base_positions, spawn_radius, self.n_agents)
 
         for i, agent in enumerate(world.agents):
-            #agent.state.p_pos = np.array(world.bases[0].state.p_pos) # all starts at the first base
-            #agent.state.p_pos = np_random.uniform(-self.world_size*3, self.world_size*3, world.dim_p) # randomly assign starting location in a square
             agent.state.p_pos = agent_positions[i]
             agent.state.p_vel = np.zeros(world.dim_p) 
 
             agent.state.theta = np.random.uniform(0,2*np.pi)
-            # initiate the message_buffer so that it always has the same size
-            agent.message_buffer = False 
-            agent.state.c = 0 # ingen agent börjar med meddelande - alltså sänder ingen i början - kanske inte behöver denna - kör bara .message_buffer
+            agent.message_buffer = False # agents always start without messages
+            agent.state.c = 0 
             agent.state.p_pos_history = [] # reset the position history - for visuals
 
         emitter_positions = self.generate_jammer_positions(np_random, base_positions, self.num_emitters, self.transmission_radius_bases)
 
         for i, emitter in enumerate(world.emitters):
-            #agent.state.p_pos = np.array(world.bases[0].state.p_pos) # all starts at the first base
-            #agent.state.p_pos = np_random.uniform(-self.world_size*3, self.world_size*3, world.dim_p) # randomly assign starting location in a square
             emitter.state.p_pos = emitter_positions[i]
             emitter.state.p_vel = np.zeros(world.dim_p) 
             emitter.action.u = None  # Get new direction
             emitter.generate_action(self.R)
-            emitter.state.theta = 0.0 # TODO - maybe randomize?
+            emitter.state.theta = 0.0 
             emitter.state.p_pos_history = []
 
 
@@ -448,25 +395,11 @@ class Info_relay_env(ParallelEnv):
         scenario = self.pre_loaded_scenarios[self.scenario_index_counter]
         scenario = [float(entry) for entry in scenario]
         self.R = scenario[1] # distance between bases
-        # R_com = 2 # communication distance (always equal to 1)
-        # R_a = 3 # Not sure. Always 0
-        # p_tx_x = 4 # This stuff has to do with base positions. Fuck that
-        # p_tx_y = 5 # ^
-        # p_rx_x = 6 # ^
-        # p_rx_y = 7 # ^
-        # jammer_x = 8 # Jammer position x
-        # jammer_y = 9 # Jammer position y
-        # jammer_dx = 10  # Jammer velocity x
-        # jammer_dy = 11 # Jammer velocity y
-        # agent1_x = 12 #agent position x
-        # agent1_y = 13 # agent position y
-        # agent1_phi = 14 # agent antenna direction
 
         base_positions = self.generate_base_positions(self.R)
         self.world.base_positions = base_positions
 
         for i, base in enumerate(self.world.bases):
-            #base.state.p_pos = np_random.uniform(-self.world_size, self.world_size, world.dim_p)
             base.state.p_pos = base_positions[i]
             base.state.p_vel = np.zeros(self.world.dim_p)
 
@@ -487,10 +420,8 @@ class Info_relay_env(ParallelEnv):
         self.world.bases[1].message_buffer = False # reset the message buffer 
 
         # Compute the midpoint of all bases
-        #base_positions = np.array(positions)
         self.center = np.mean(base_positions, axis=0)  # Midpoint of bases
 
-        # I feel lie the center point should be contained in world but idk
         self.world.center = self.center
 
         for i, agent in enumerate(self.world.agents):
@@ -498,9 +429,8 @@ class Info_relay_env(ParallelEnv):
             agent.state.p_vel = np.zeros(self.world.dim_p) 
 
             agent.state.theta = scenario[14 + i * 3]
-            # initiate the message_buffer so that it always has the same size
             agent.message_buffer = False 
-            agent.state.c = 0 # ingen agent börjar med meddelande - alltså sänder ingen i början - kanske inte behöver denna - kör bara .message_buffer
+            agent.state.c = 0 
             agent.state.p_pos_history = [] # reset the position history - for visuals
 
         for i, emitter in enumerate(self.world.emitters):
@@ -508,10 +438,10 @@ class Info_relay_env(ParallelEnv):
             emitter.state.p_vel = np.zeros(self.world.dim_p)
             
             emitter.action.u = np.array([scenario[10], scenario[11]])
-            emitter.state.theta = 0.0 # TODO - maybe randomize?
+            emitter.state.theta = 0.0 
             emitter.state.p_pos_history = []
 
-            # Whack but only do one jammer for now
+            # only one jammer
             break
             
 
@@ -523,9 +453,6 @@ class Info_relay_env(ParallelEnv):
 
         with open(scenario_file, 'r') as f:
             csv_reader = csv.reader(f)
-
-            # Header includes description of fields. Unnecessary
-            # header = next(csv_reader)
 
             # Let's have index 0 intentionally as header, to make the scenarios 1-indexed
             for row in csv_reader:
@@ -545,21 +472,20 @@ class Info_relay_env(ParallelEnv):
                 self.apply_pre_loaded_scenario()
                 self.evaluation_logger.set_budget(self.compute_budget_from_poly(self.n_agents, self.R, self.transmission_radius_bases))
             else:
-                # I have no fucking idea
                 self.reset_world(self.world, self.np_random)
         else:
             self.reset_world(self.world, self.np_random)
 
-        self.episode_counter += 1 # update the iteration counter - number of reseted envs
+        self.episode_counter += 1 # update the iteration counter - number of times the env has been reset
         
         # always start at timestep 0
         self.timestep = 0 
 
-        self.agents = copy(self.possible_agents) #OBS används denna fortfarande? 
+        self.agents = copy(self.possible_agents) 
 
         observations = self.observe_all()
         
-        if not self.continuous_actions: # Nu kör vi utan action masking - finns inga otillåtna actions när agenterna inte beslutar om sändning
+        if not self.continuous_actions: 
             infos = {agent.name: {"action_mask" : np.ones(len(self.action_mapping_dict), dtype=int)} for agent in self.world.agents}
         elif self.continuous_actions:
             infos = {agent.name: None for agent in self.world.agents}
@@ -661,7 +587,7 @@ class Info_relay_env(ParallelEnv):
 
         self.timestep += 1
         
-        ## here we can look at the rewards - after world step - could be done after observations instead!
+        # rewards
         global_reward = self.global_reward()
         total_action_penalties = 0
         for agent in self.world.agents:
@@ -669,7 +595,7 @@ class Info_relay_env(ParallelEnv):
 
         total_reward = float(self.reward(agent, global_reward, total_action_penalties))
         for agent in self.world.agents:
-            if self.episode_counter < self.num_r_help_episodes: # hjälpreward 
+            if self.episode_counter < self.num_r_help_episodes: 
                 rewards[agent.name] = total_reward + agent.reward_bonus
             else: 
                 rewards[agent.name] = total_reward
@@ -688,7 +614,6 @@ class Info_relay_env(ParallelEnv):
                     self.evaluation_logger.log_step(int(self.timestep), self.world.agents, self.world.emitters, bool(self.num_emitters)) 
         
         terminations = self.terminate()
-        #terminations = {agent.name: False for agent in self.world.agents}
 
         # handle truncation
         truncations = {agent.name: False for agent in self.world.agents}
@@ -721,7 +646,6 @@ class Info_relay_env(ParallelEnv):
                 self.evaluation_logger.set_delivery_time(T_D)
 
                 print("writing episode to file: ", self.evaluation_logger.episode_index)
-                #self.evaluation_logger.end_episode()
                 self.evaluation_logger.write_episode()
 
                 if self.scenario_index_counter % 5000 == 0:
@@ -743,7 +667,6 @@ class Info_relay_env(ParallelEnv):
 
         return observations, rewards, terminations, truncations, infos
     
-    # TODO - om ny separat wrapper class för varje scenario skapas ska denna ligga där också
     def terminate(self):
         """
         Determins the termination condition for each scenario. 
@@ -844,26 +767,11 @@ class Info_relay_env(ParallelEnv):
         """ Kör Mikas funktion direkt - testar """
         self.discount_factor = 0.99 
 
-        if self.world.bases[1].message_buffer: # meddelandet har levererats (detta tidsteg)
+        if self.world.bases[1].message_buffer: # the message has been delivered (this timestep) 
             return self.compute_budget_from_poly(self.n_agents, self.R, self.transmission_radius_bases)
         else:
             return 0
 
-    # def global_reward(self):
-    #     """
-    #     Rewards given to all agents. Given by correctly delivering messages.
-    #     """
-    #     reward = 0
-    #     self.discount_factor = 0.99 # TODO OBS fixa som input till klassen!! - ska sättas en gång både till envet och experimentet
-
-    #     D_tot = (1 + 0.1*self.n_agents)*self.R + (2 + 0.5*self.n_agents*(self.n_agents - 1))*self.world.transmission_radius
-
-    #     T = (1.1*self.R + 2*self.world.transmission_radius)/self.a_max + self.n_agents
-
-    #     if self.world.bases[1].message_buffer: # meddelandet har levererats (detta tidsteg)
-    #         reward = (1 - self.discount_factor**T)/(1 - self.discount_factor) * (1/self.discount_factor**T) * (D_tot/(self.n_agents*T))**2
-
-    #     return reward 
 
     def compute_metrics(self, p_trajectories, phi_trajectories, c_pos, c_phi, budget, beta):
         """
@@ -992,12 +900,11 @@ class Info_relay_env(ParallelEnv):
         return min(np.exp(2 * normalized_dist - 2), 10)
 
     
-    def reward(self, agent, global_reward, action_penalties): ## OBS this could be put into the Scenario class
+    def reward(self, agent, global_reward, action_penalties):
         """ 
         The reward given to each agent - could be made up of multiple different rewards in different functions
         """
-        # TODO - update to new reward
-        return global_reward - action_penalties #self.calculate_action_penalties(agent)
+        return global_reward - action_penalties 
     
 
     def get_entity_by_name(self, name):
@@ -1008,16 +915,12 @@ class Info_relay_env(ParallelEnv):
             if entity.name == name:
                 return entity
         
-        return None ## The entity does not exist
+        return None
 
 
     
     def communication_kernel(self):
         """ Runs the communication kernel when the message buffer is just one boolean contaning one message without any meta data """
-        # om bas-looparna tas bort:
-        #base1 = self.world.bases[0]
-        #base2 = self.world.bases[1]
-        # decide if the base is sending
 
         self.check_base_com()
 
@@ -1030,12 +933,12 @@ class Info_relay_env(ParallelEnv):
 
             recieved_message = False
 
-            for base in self.world.bases: # really dont need to loop through the bases as only one base is sending now - only check the first base
+            for base in self.world.bases:
                 if base.state.c == 1 and not agent.state.c == 1: # if sending
                     SNR = self.calculate_SNR(agent, base, self.world.emitters)
                     if self.check_signal_detection(SNR):
                         agent.message_buffer = True
-                        agent.state.c = 1 # not it will send continously
+                        agent.state.c = 1 # now it will send continously
                         agent.reward_bonus += 0.25
                         recieved_message = True
                         if self.evaluation_logger is not None:
@@ -1059,7 +962,7 @@ class Info_relay_env(ParallelEnv):
                             self.evaluation_logger.add_air_distance(other, agent)
                         continue
 
-        for base in self.world.bases: # maybe remove loop - only look at the 2nd base
+        for base in self.world.bases:
             for agent in agents_copy:
                 if agent.message_buffer and base.state.c != 1:
                     SNR = self.calculate_SNR(base, agent, self.world.emitters)
@@ -1069,7 +972,7 @@ class Info_relay_env(ParallelEnv):
                         if self.evaluation_logger is not None:
                             self.evaluation_logger.add_air_distance(agent, base)
                         continue
-            for other in self.world.bases: # maybe remove loop - only look at the first base
+            for other in self.world.bases:
                 if other.name == base.name:
                     continue
                 if base.state.c == 1:
@@ -1084,7 +987,7 @@ class Info_relay_env(ParallelEnv):
     def check_base_com(self):
         """ Checks if the base should send this timestep """
         if not self.base_always_transmitting:
-            #self.world.bases[0].state.c = np.random.binomial(1, 0.2) # singlar slant om den ska sända eller ej
+            #self.world.bases[0].state.c = np.random.binomial(1, 0.2) # tosses a coin if it transmitts or not
             self.world.bases[0].c = 1 # base is always sending
  
 
@@ -1095,7 +998,6 @@ class Info_relay_env(ParallelEnv):
         return np.sqrt(entity.transmit_power/self.SNR_threshold)
 
     def check_signal_detection(self, SNR): # detection or not - based on SNR
-        #SNR = self.calculate_SNR(agent, other)
         if SNR > self.SNR_threshold:
             return True # signal detected
         else:
@@ -1111,23 +1013,12 @@ class Info_relay_env(ParallelEnv):
         if self.antenna_used and not isinstance(transmitter, Base):
             # agent is reciever, r, other is transmitter, t
             SNR = 0
-            rel_pos = reciever.state.p_pos - transmitter.state.p_pos # t - r
+            rel_pos = reciever.state.p_pos - transmitter.state.p_pos 
 
             alpha = np.arctan2(rel_pos[1], rel_pos[0]) #alpha is the angle between x-axis and the line between the drones
 
-            #alpha = np.arctan(rel_pos[1]/rel_pos[0]) # the angle between x-axis and the line bweteen the drones
-            #testar en annan arctan func
-            #if isinstance(reciever, Base): # for when bases check for detection
-            #    phi_r = 0
-            #else:
-            #    phi_r = alpha - reciever.state.theta 
-            #    phi_r = np.arctan2(np.sin(phi_r), np.cos(phi_r)) # normalize phi to between [-pi,pi]
-
-            phi_r = 0 # all entities see in all directions uniformly
-            #phi_t = 0
-
             if isinstance(transmitter, Base):
-               theta = 0 ## bases and emitter send in all directions with the same power 
+               theta = 0 # bases and emitter send in all directions with the same power 
             else:
                theta = (alpha - transmitter.state.theta + np.pi)%(2*np.pi) - np.pi
 
@@ -1152,7 +1043,7 @@ class Info_relay_env(ParallelEnv):
             reciever.current_jamming_factor = 1
 
             for jammer in jammers:
-                #Start jamming
+                # Start jamming
                 rel_pos_j = reciever.state.p_pos - jammer.state.p_pos
                 reciever.current_jamming_factor /= (1 + 3 * ((np.linalg.norm(rel_pos_j))**(-2)))
                 
@@ -1195,7 +1086,7 @@ class Info_relay_env(ParallelEnv):
             physical_observation = np.concatenate([physical_observation, all_antenna_directions])
 
         communication_observation = []
-        communication_observation.append(agent.message_buffer)  # its own observation is seperate - so the policy singels out the correct input corresponding to itself
+        communication_observation.append(agent.message_buffer)  # its own observation is seperate - so the policy singles out the correct input corresponding to itself
     
         for other in self.world.agents:  
             if other is not agent: 
@@ -1247,7 +1138,7 @@ class Info_relay_env(ParallelEnv):
             physical_observation = np.concatenate([physical_observation, all_antenna_directions]) 
 
         communication_observation = []
-        communication_observation.append(agent.message_buffer)  # its own observation is seperate - so the policy singels out the correct input corresponding to itself
+        communication_observation.append(agent.message_buffer)  # its own observation is seperate - so the policy singles out the correct input corresponding to itself
     
         for other in sorted_others:  
                 communication_observation.append(other.message_buffer)
@@ -1288,7 +1179,7 @@ class Info_relay_env(ParallelEnv):
             physical_observation = np.concatenate([physical_observation, all_antenna_directions]) 
 
         communication_observation = []
-        communication_observation.append(agent.message_buffer)  # its own observation is seperate - so the policy singels out the correct input corresponding to itself
+        communication_observation.append(agent.message_buffer)  # its own observation is seperate - so the policy singles out the correct input corresponding to itself
     
         for other in sorted_others:  
                 communication_observation.append(other.message_buffer)
@@ -1311,9 +1202,6 @@ class Info_relay_env(ParallelEnv):
                 other_pos.append(other.state.p_pos - agent.state.p_pos)
                 #other_vel.append(other.state.p_vel)
                 
-
-        ## OBS really need to dubbelcheck if this is the most efficient way to store observations
-        # for example: agent's own state can be stored in the same array as all others? 
         return np.concatenate(
             #[agent.state.p_vel]
             [agent.state.p_pos]
@@ -1323,20 +1211,19 @@ class Info_relay_env(ParallelEnv):
         )
 
     
-    def observe(self, agent): # these could be included in the Scenario class together with world make/reset
+    def observe(self, agent): 
         return self.observation_based_on_range(agent)
 
-    #
+    
     def observe_all(self):
         """Return observations for all agents as a dictionary"""
         observations = {agent.name: self.observe(agent) for agent in self.world.agents}
         return observations
 
     def _seed(self, seed=None):
-        seed = None # too always randomize
+        seed = None # always randomize
         self.np_random, seed = seeding.np_random(seed)
 
-    # OBS maybe add @functools.lru_cache(maxsize=None) - could reduce compute time
     def observation_space(self, agent):
         return self.observation_spaces[agent]
 
@@ -1374,7 +1261,6 @@ class Info_relay_env(ParallelEnv):
         # update bounds to center around agent
         all_poses = [entity.state.p_pos for entity in self.world.entities]
         cam_range = max(np.max(np.abs(np.array(all_poses))),1)
-        #cam_range = 10 # obs just to check how it looks without scaling
 
         # update geometry and text positions
         text_line = 0
@@ -1429,9 +1315,6 @@ class Info_relay_env(ParallelEnv):
                 pygame.draw.circle(
                     self.screen, (0, 0, 0), (x, y), scaled_transmission_radius_drones * np.sqrt(entity.current_jamming_factor), 1
                 )  # signal transmit radius
-            #assert (
-            #    0 < x < self.width and 0 < y < self.height
-            #), f"Coordinates {(x, y)} are out of bounds."
 
             # Display entity name next to it
             name_x_pos = x + 10  # Offset slightly to the right
@@ -1462,7 +1345,7 @@ class Info_relay_env(ParallelEnv):
                     pygame.draw.polygon(
                     self.screen, (0, 0, 0), [(end_x, end_y), (left_x, left_y), (right_x, right_y)])
 
-                if entity.silent: # kanske rita tysta drönare annorlunda? eller markera sändning på ett visst visuellt sätt
+                if entity.silent: 
                     continue
                 if np.all(entity.state.c == 0):
                     word = "_"
@@ -1470,12 +1353,6 @@ class Info_relay_env(ParallelEnv):
                     word = "___"
                 else: 
                     word = "msg" 
-                #else:
-                #    word = (
-                #        "[" + ",".join([f"{comm:.2f}" for comm in entity.state.c]) + "]"
-                #    )
-                #else:
-                    #word = alphabet[np.argmax(entity.state.c)]
 
                 message = entity.name + " sends " + word + "   "
                 message_x_pos = self.width * 0.05

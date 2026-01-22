@@ -6,9 +6,6 @@ import pickle
 
 from dataclasses import dataclass, field
 
-"""
-Taken from pettingzoo MPE and altered 
-"""
 
 class EvaluationLogger:
     def __init__(self, directed_transmission = False, jammer_on = False, K = 0, scenario_file = "", evaluation_log = "evaluation_log"):
@@ -138,8 +135,6 @@ class EvaluationLogger:
         else:
             step_dict["jammer_x"] = None
             step_dict["jammer_y"] = None
-
-        #step_dict["scenario_file"] = self.scenario_file
         
 
         self.episodes_data[self.episode_index][t] = step_dict
@@ -167,9 +162,8 @@ class EntityState:  # physical/external base state of all entities
         # physical velocity
         self.p_vel = None
         # communication utterance
-        self.c = None # OBS init all agent with the same (ID)!!!
+        self.c = None 
         # transmitting if True, listening if False. 
-        #self.sending = False # obs kalla denna self.c som i envet? eller kanske modda envet?
 
     def save_history(self):
         self.p_pos_history.append(copy(self.p_pos))
@@ -177,18 +171,16 @@ class EntityState:  # physical/external base state of all entities
             self.p_pos_history.pop(0)
 
 
-class DroneState(EntityState):  # state of agents (including communication and internal/mental state)
+class DroneState(EntityState):  # state of agents (including communication)
     def __init__(self):
         super().__init__()
-        # communication utterance
-        #self.c = None
         # angle of antenna relative drone body (relative global coords)
         self.theta = None
 
 
 class Action:
     def __init__(self):
-        #communication action - if sending and direction - should the direction (omega) be in its own variable???
+        #communication action 
         self.c = None
 
 class DroneAction(Action):  # action of the agent
@@ -196,13 +188,9 @@ class DroneAction(Action):  # action of the agent
         super().__init__()
         # physical action
         self.u = None # controlls antenna
-        #maybe only sets velocity directly and not acceleration?
 
         # deleting message from message buffer
         self.d = None
-
-        # not used!
-        self.communication = None #int taken from discrete action space with size of massege_buffer+1 (0 == no communication)
 
     
     def __str__(self):
@@ -230,23 +218,20 @@ class Entity:  # properties and state of physical world entity
         self.accel = None
         # state
         self.state = EntityState()
-        # mass
-        #self.initial_mass = 1.0
+        
         # if the agent can(not) observe the world
         self.blind = False
-        # the agent cannot send communication (different from self.c i state/action??)
+        # the agent cannot send communication 
         self.silent = False
 
-        self.transmit_power = 1 #0.5625 # in SNR calculation
+        self.transmit_power = 1 
 
-        self.current_jamming_factor = 0.
+        self.current_jamming_factor = 0.0
 
         self.internal_noise = 1 # internal noise for SNR calculation
 
-        self.message_buffer = [] # enteties that communicate all have a storage of messages
+        self.message_buffer = None # enteties that communicate all have a storage of messages
 
-        # the mesage to be sent by the entity
-        self.message_to_send = None #[1,0,0,0,[self.name]]
 
     def get_index(self):
         """
@@ -262,15 +247,11 @@ class Entity:  # properties and state of physical world entity
     def __repr__(self):
         return f'{self.name}'
 
-    #@property
-    #def mass(self):
-    #    return self.initial_mass
 
-# Obs bases should listen aswell
 class Base(Entity):  # properties of Base entities
     def __init__(self):
         super().__init__()
-        self.action = Action() # ska detta vara en action - kommer inte tränas??
+        self.action = Action()
 
         self.generate_messages = True
     
@@ -280,11 +261,11 @@ class Base(Entity):  # properties of Base entities
     def __repr__(self):
         return super().__repr__()
 
-class Emitter(Entity): # always transmitting - taking no actions (atleast yet)
+class Emitter(Entity): 
     def __init__(self):
         super().__init__()
         self.state.c = True # always communicating
-        self.blind = True # the emitters do not listen
+        self.blind = True 
         self.movable = True
         self.action = DroneAction()
 
@@ -310,10 +291,10 @@ class Emitter(Entity): # always transmitting - taking no actions (atleast yet)
         while self.action.u is None or np.linalg.norm(self.action.u) == 0:
             
             towards_center = np.array([R / 2, 0]) - self.state.p_pos
-            # No idea why it inverts at some point..
+            
             self.action.u = - towards_center / np.linalg.norm(towards_center)
             direction_offset = np.random.uniform( -math.pi / 2, math.pi / 2)
-            #print("direction offset: ", direction_offset)
+            
             rotation_matrix = np.array([[np.cos(direction_offset), - np.sin(direction_offset)],
                                         [np.sin(direction_offset) , np.cos(direction_offset)]])
 
@@ -322,6 +303,7 @@ class Emitter(Entity): # always transmitting - taking no actions (atleast yet)
         else:
             # Reverse direction
             self.action.u = self.action.u*-1
+
     def __str__(self):
         return super().__str__()
     
@@ -338,16 +320,11 @@ class Drone(Entity):  # properties of agent entities
         self.silent = False
         # cannot observe the world
         self.blind = False
-        # physical motor noise amount
-        #self.u_noise = None
-        # communication noise amount - to be changed!! also direction!
-        self.c_noise = None
-        # control range - what should we have in our problem?
+        # control range
         self.u_range = 1.0
 
         # state
         self.state = DroneState()
-        #self.state.p_pos = None # add it here to try to solve bug were all agents' positions have the same id
 
         # action
         self.action = DroneAction()
@@ -355,14 +332,14 @@ class Drone(Entity):  # properties of agent entities
         self.action_callback = None
 
         # the number of messages able to be stored at once
-        self.message_buffer_size = 4
-        # a list of the possible messages - list of lists (messages)
-        self.message_buffer = []#np.zeros([self.message_buffer_size, 5]) 
+        self.message_buffer_size = 1
+        
+        self.message_buffer = None
         self.reward_bonus = 0
 
         self.movement_cost = 0.5 # the cost of movement - scales with magnitude of movement 
         self.radar_cost = 0.1 # cost of changing direction of radar
-        self.transmission_cost = 0.001 # cost of transmitting a message 
+        #self.transmission_cost = 0.001 # cost of transmitting a message 
 
 
     def __str__(self):
@@ -372,32 +349,27 @@ class Drone(Entity):  # properties of agent entities
         return super().__repr__()
 
 
-class World:  # multi-agent world
+class World: # multi-agent world
     def __init__(self):
-        # list of agents and entities (can change at execution-time!)
-        self.agents = [] # OBS change to drones later?? or keep as agents?
+        # list of agents and entities 
+        self.agents = [] 
         self.bases = []
         self.emitters = []
         self.base_positions = None
         self.transmission_radius = None
         self.R = None # Distance between bases
-        # communication channel dimensionality (we only have destination??)
+        # communication channel dimensionality 
         self.dim_c = 0
         # position dimensionality
         self.dim_p = 2
-        # color dimensionality - 
+        # color dimensionality
         self.dim_color = 3
         # simulation timestep
         self.dt = 0.1
-        # noice level in control signals - maybe attributes of the Drones instead? not the world?
+        # noice level in control signals
         self.sigma_x = 0.0
         self.sigma_y = 0.0
         self.sigma_omgea = 0.0
-        # physical damping
-        #self.damping = 0.25
-        # contact response parameters - not used by us?
-        #self.contact_force = 1e2
-        #self.contact_margin = 1e-3
 
         self.message_ID_counter = None # contains key(message_id): [destination, timestep for transmission]
 
@@ -416,7 +388,7 @@ class World:  # multi-agent world
     def policy_agents(self):
         return [agent for agent in self.agents if agent.action_callback is None]
 
-    # return all agents controlled by world scripts - kan användas senare för störande drönare
+    # return all agents controlled by world scripts
     @property
     def scripted_agents(self):
         return [agent for agent in self.agents if agent.action_callback is not None]
@@ -433,17 +405,60 @@ class World:  # multi-agent world
 
         for i, agent in enumerate(self.agents):
             # used to check correct init (uniqe) id's for all agents
-            #print(f"Agent {agent.name} p_pos id: {id(agent.state.c)}")
-            self.apply_process_model_2_drones(agent, agent.action.u[:2], agent.action.u[2])
+            self.apply_process_model(agent, agent.action.u[:2], agent.action.u[2])
 
         for emitter in self.emitters:
-            #velocity = np.array([1.0, 1.0])
             theta = 0.
-            self.apply_process_model_2_drones(emitter, emitter.action.u[:2], theta)
+            self.apply_process_model(emitter, emitter.action.u[:2], theta)
+                    
 
-    # NOT USED?
-    # applies the process model from the pdf
-    def apply_process_model(self):
+    # the process model where the actions are instantaneous velocities 
+    def apply_process_model(self, agent, velocity, theta):
+        """
+        Applies the physical transition kernel. 
+        Steps all agents' position and orientation one time step.
+        """
+        if not agent.movable: # skip enteties that can't move
+            return
+        
+        agent.state.p_vel = velocity # u[:2] contains velocity in x, y directions
+
+        # stochastic control noise (gaussian)
+        noise_scale = (np.array([self.sigma_x, self.sigma_y]) * agent.state.p_vel * self.dt)**2
+        agent.state.p_vel += np.random.normal(loc = 0, scale = noise_scale, size = (2,)) 
+        
+        theta_action_dt = theta #* self.dt testing without the dt param - for discrete case 
+        theta_noise = np.random.normal(loc = 0, scale = (self.sigma_omgea*theta_action_dt)**2)
+        agent.state.theta += theta_action_dt + theta_noise
+        #ensures that theta is bounded in [0,2pi)
+        agent.state.theta %= (2*np.pi)
+
+
+        # ensure that max-speed is enforced
+        if agent.max_speed is not None:
+            speed = np.sqrt(np.square(agent.state.p_vel[0]) + np.square(agent.state.p_vel[1]))
+            if speed > agent.max_speed:
+                agent.state.p_vel = (
+                    agent.state.p_vel / np.sqrt(
+                        np.square(agent.state.p_vel[0])
+                        + np.square(agent.state.p_vel[1])
+                    ) * agent.max_speed)
+        
+        # update the position with
+        agent.state.p_pos += agent.state.p_vel * self.dt 
+
+
+    ## updates the communication states of all enteties       
+    def update_entity_state(self, entity):
+        if entity.silent:
+            entity.state.c = np.zeros(self.dim_c)
+        else:
+            noise = 0 # could be stochastic
+            entity.state.c = entity.action.c + noise 
+
+
+"""
+    def apply_process_model_old(self):
         for i, entity in enumerate(self.entities):
             if not entity.movable: # skip enteties that can't move - currently bases and emitters 
                 continue
@@ -470,159 +485,5 @@ class World:  # multi-agent world
                             np.square(entity.state.p_vel[0])
                             + np.square(entity.state.p_vel[1])
                         ) * entity.max_speed)
-                    
-
-    # TODO - uppdatera så att fiendens state också uppdateras varje tidsteg - här eller egen funktion.
-    # the simpler model without acceleration - here action is setting the new velocity (and omega)
-    def apply_process_model_2_drones(self, agent, velocity, theta):
-        """
-        Applies the physical transition kernel. 
-        Steps all agents' position and orientation one time step.
-        """
-        if not agent.movable: # skip enteties that can't move - currently bases and emitters 
-            return
+    """
         
-        # assumes velocity is set immediatly - realistic?
-        #print(agent.action.u)
-        agent.state.p_vel = velocity # u[:2] contains velocity in x, y directions
-
-        # stochastic control noise (gaussian)
-        noise_scale = (np.array([self.sigma_x, self.sigma_y]) * agent.state.p_vel * self.dt)**2
-        agent.state.p_vel += np.random.normal(loc = 0, scale = noise_scale, size = (2,)) 
-        
-        theta_action_dt = theta #* self.dt testing without the dt param - for discrete case 
-        theta_noise = np.random.normal(loc = 0, scale = (self.sigma_omgea*theta_action_dt)**2)
-        agent.state.theta += theta_action_dt + theta_noise
-        #ensures that theta is bounded in [0,2pi)
-        agent.state.theta %= (2*np.pi)
-
-
-        # ensure that max-speed is enforced
-        # https://ieeexplore.ieee.org/stamp/stamp.jsp?tp=&arnumber=9161257
-        if agent.max_speed is not None:
-            speed = np.sqrt(np.square(agent.state.p_vel[0]) + np.square(agent.state.p_vel[1]))
-            if speed > agent.max_speed:
-                agent.state.p_vel = (
-                    agent.state.p_vel / np.sqrt(
-                        np.square(agent.state.p_vel[0])
-                        + np.square(agent.state.p_vel[1])
-                    ) * agent.max_speed)
-        
-        ## now the position is updated
-        agent.state.p_pos += agent.state.p_vel * self.dt 
-
-
-    ## updates the communication states of all enteties       
-    def update_entity_state(self, entity):
-        if entity.silent:
-            entity.state.c = np.zeros(self.dim_c)
-        else:
-            #OBS add some stochastic noise or something similar. 
-            # also remember transmitters/bases transmit in all directions, drones have direction
-            noise = 0 # OBS should be stochastic
-            entity.state.c = entity.action.c + noise 
-        
-"""
-    # gather agent action forces
-    def apply_action_force(self, p_force):
-        # set applied forces
-        for i, agent in enumerate(self.agents):
-            if agent.movable:
-                noise = (
-                    np.random.randn(*agent.action.u.shape) * agent.u_noise
-                    if agent.u_noise
-                    else 0.0
-                )
-                p_force[i] = agent.action.u + noise
-        return p_force
-
-
-
-    # gather physical forces acting on entities
-    def apply_environment_force(self, p_force):
-        # simple (but inefficient) collision response
-        for a, entity_a in enumerate(self.entities):
-            for b, entity_b in enumerate(self.entities):
-                if b <= a:
-                    continue
-                [f_a, f_b] = self.get_collision_force(entity_a, entity_b)
-                if f_a is not None:
-                    if p_force[a] is None:
-                        p_force[a] = 0.0
-                    p_force[a] = f_a + p_force[a]
-                if f_b is not None:
-                    if p_force[b] is None:
-                        p_force[b] = 0.0
-                    p_force[b] = f_b + p_force[b]
-        return p_force
-
-    # integrate physical state
-    def integrate_state(self, p_force):
-        for i, entity in enumerate(self.entities):
-            if not entity.movable:
-                continue
-            entity.state.p_pos += entity.state.p_vel * self.dt
-            entity.state.p_vel = entity.state.p_vel * (1 - self.damping)
-            if p_force[i] is not None:
-                entity.state.p_vel += (p_force[i] / entity.mass) * self.dt
-            if entity.max_speed is not None:
-                speed = np.sqrt(
-                    np.square(entity.state.p_vel[0]) + np.square(entity.state.p_vel[1])
-                )
-                if speed > entity.max_speed:
-                    entity.state.p_vel = (
-                        entity.state.p_vel
-                        / np.sqrt(
-                            np.square(entity.state.p_vel[0])
-                            + np.square(entity.state.p_vel[1])
-                        )
-                        * entity.max_speed
-                    )
-
-    def update_agent_state(self, agent):
-        # set communication state (directly for now)
-        if agent.silent:
-            agent.state.c = np.zeros(self.dim_c)
-        else:
-            noise = (
-                np.random.randn(*agent.action.c.shape) * agent.c_noise
-                if agent.c_noise
-                else 0.0
-            )
-            agent.state.c = agent.action.c + noise
-
-    # get collision forces for any contact between two entities
-    def get_collision_force(self, entity_a, entity_b):
-        if (not entity_a.collide) or (not entity_b.collide):
-            return [None, None]  # not a collider
-        if entity_a is entity_b:
-            return [None, None]  # don't collide against itself
-        # compute actual distance between entities
-        delta_pos = entity_a.state.p_pos - entity_b.state.p_pos
-        dist = np.sqrt(np.sum(np.square(delta_pos)))
-        # minimum allowable distance
-        dist_min = entity_a.size + entity_b.size
-        # softmax penetration
-        k = self.contact_margin
-        penetration = np.logaddexp(0, -(dist - dist_min) / k) * k
-        force = self.contact_force * delta_pos / dist * penetration
-        force_a = +force if entity_a.movable else None
-        force_b = -force if entity_b.movable else None
-        return [force_a, force_b]
-
-"""
-
-
-"""   
-        # gather forces applied to entities
-        p_force = [None] * len(self.entities)
-        # apply agent physical controls
-        p_force = self.apply_action_force(p_force)
-        # apply environment forces
-        p_force = self.apply_environment_force(p_force)
-        # integrate physical state
-        self.integrate_state(p_force)
-        # update agent state
-        for agent in self.agents:
-            self.update_agent_state(agent) # could be usefull to use something similar!!
-        """
