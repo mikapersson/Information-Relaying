@@ -41,4 +41,11 @@ In order to run the simulator together with BenchMARL, the following steps have 
 ## Running the baseline
 [TODO 23 Jan]
 
-![screenshot](Info-relay-implementation/Figures/Info_relay_overview.png)
+## Please cite if you use the code
+@article{persson2025dynamic,
+  title={Dynamic one-time delivery of critical data by small and sparse UAV swarms: a model problem for MARL scaling studies},
+  author={Persson, Mika and Lidman, Jonas and Ljungberg, Jacob and Sandelius, Samuel and Andersson, Adam},
+  journal={arXiv preprint arXiv:2512.09682},
+  year={2025}
+}
+
