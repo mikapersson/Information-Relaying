@@ -100,27 +100,27 @@ This can be done in the following steps:
    ```
 
 6. **Visualize the solution:**
-```python
-from Evaluation.evaluate import plot_trajectory, animate_trajectory
-
-# Option A: Static plot of agent trajectories
-plot_trajectory(
-   result['p_trajectories'],
-   sample['p_tx'],
-   sample['p_recv'],
-   sample['Rcom'],
-   savepath=None  # Set to a path string to save as image
-)
-
-# Option B: Animation of agent trajectories over time
-animate_trajectory(
-   result['p_trajectories'],
-   sample['p_tx'],
-   sample['p_recv'],
-   sample['Rcom'],
-   savepath='baseline_animation.gif'  # Set to None to display without saving
-)
-```
+    ```python
+    from Evaluation.evaluate import plot_trajectory, animate_trajectory
+    
+    # Option A: Static plot of agent trajectories
+    plot_trajectory(
+       result['p_trajectories'],
+       sample['p_tx'],
+       sample['p_recv'],
+       sample['Rcom'],
+       savepath=None  # Set to a path string to save as image
+    )
+    
+    # Option B: Animation of agent trajectories over time
+    animate_trajectory(
+       result['p_trajectories'],
+       sample['p_tx'],
+       sample['p_recv'],
+       sample['Rcom'],
+       savepath='baseline_animation.gif'  # Set to None to display without saving
+    )
+    ```
 
 For a complete example, see the `__main__` block in [Baseline/baseline.py](Baseline/baseline.py).
 
