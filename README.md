@@ -122,8 +122,6 @@ This can be done in the following steps:
     )
     ```
 
-For a complete example, see the `__main__` block in [Baseline/baseline.py](Baseline/baseline.py).
-
 ## Cite
 @article{persson2025dynamic,
   title={Dynamic one-time delivery of critical data by small and sparse UAV swarms: a model problem for MARL scaling studies},
