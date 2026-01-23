@@ -1,7 +1,8 @@
 
 # Information Relaying Environment 
 
-Information relaying game: collaborative game in which agents relay one message from a transmitting base station (blue square) to a receiving base (green square), preferably as fast as possible with minimum movement.  
+Information relaying game: collaborative game in which agents control their motion and antennas to relay one message from a transmitting base station (blue square) to a receiving base (green square), preferably as fast as possible with minimal movement. 
+Four scenarios are considered given by the combinations of isotropic or directed data links with the presence or absence of a jammer.
 
 The repository contains the information relaying environment simulator, a multi-agent reinforcement learning (MARL) framework ([BenchMARL](https://github.com/facebookresearch/BenchMARL)) for training agents to solve the information relaying problem, and hand-crafted baseline. 
 
@@ -39,9 +40,68 @@ In order to run the simulator together with BenchMARL, the following steps have 
     parameter boolean pre_determined_scenario in info_relay-env_v2.py to True.
 
 ## Running the baseline
-[TODO 23 Jan]
+The baseline takes a scene (an initial state defining agent positions and antenna orientations, and distance between bases, and one of the four scenarios) and returns a solution to the relaying problem as a full state trajectory of all agents. 
+This can be done in the following steps:
 
-## Please cite if you use the code
+1. **Set up environment parameters:**
+   ```python
+   from Baseline.baseline import baseline, sample_scenario, load_premade_scenario
+   
+   Rcom = 1.0        # Communication range
+   sigma = 0.2       # Maximum agent displacement per time step
+   beta = 0.99       # Discount factor
+   c_pos = 0.5       # Cost coefficient for agent movement
+   c_phi = 0.1       # Cost coefficient for antenna steering
+   ```
+
+2. **Load or generate a scenario:**
+   ```python
+   # Option A: Load a premade scenario (options 1-10 available)
+   sample = load_premade_scenario(option=1, Rcom=Rcom, sigma=sigma)
+   
+   # Option B: Sample a random scenario
+   # sample = sample_scenario(K=5, Rcom=Rcom, R=5.0, Ra=0.6, sigma=sigma, seed=42)
+   ```
+
+3. **Configure scenario parameters:**
+   ```python
+   directed = False          # True for directional antenna transmission
+   jammer_info = None        # Set jammer parameters for jammed scenarios
+   clustering = True         # Enable clustering of relaying agents
+   debug = False             # Enable debug output
+   ```
+
+4. **Run the baseline solver:**
+   ```python
+   result = baseline(
+       p_agents=sample['p_agents'],
+       p_tx=sample['p_tx'],
+       p_recv=sample['p_recv'],
+       Rcom=Rcom,
+       sigma=sigma,
+       beta=beta,
+       c_pos=c_pos,
+       c_phi=c_phi,
+       phi_agents=sample['phi_agents'],
+       jammer_info=jammer_info,
+       debug=debug,
+       clustering=clustering
+   )
+   ```
+
+5. **Extract the solution:**
+   ```python
+   # Key outputs from result dictionary:
+   path = result['path']                    # Relay path (agent sequence)
+   relay_points = result['relay_points']    # Positions where agents relay
+   p_trajectories = result['p_trajectories'] # Agent position trajectories over time
+   value = result['value']                  # Solution quality metric (budget - cost)
+   delivery_time = result['delivery_time']  # Time steps to deliver message
+   ```
+
+For a complete example, see the `__main__` block in [Baseline/baseline.py](Baseline/baseline.py).
+
+## Cite
 @article{persson2025dynamic,
   title={Dynamic one-time delivery of critical data by small and sparse UAV swarms: a model problem for MARL scaling studies},
   author={Persson, Mika and Lidman, Jonas and Ljungberg, Jacob and Sandelius, Samuel and Andersson, Adam},
