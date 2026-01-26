@@ -121,11 +121,14 @@ This can be done in the following steps:
     )
     ```
 
-## Cite
+## Citation
+Please consider citing if you found this repository helpful.
+```
 @article{persson2025dynamic,
   title={Dynamic one-time delivery of critical data by small and sparse UAV swarms: a model problem for MARL scaling studies},
   author={Persson, Mika and Lidman, Jonas and Ljungberg, Jacob and Sandelius, Samuel and Andersson, Adam},
   journal={arXiv preprint arXiv:2512.09682},
   year={2025}
 }
+```
 
