@@ -54,9 +54,9 @@ This can be done in the following steps:
    c_phi = 0.1       # Cost coefficient for antenna steering
    ```
 
-2. **Load or generate a scenario:**
+2. **Load or generate a scene:**
    ```python
-   # Option A: Load a premade scenario (options 1-10 available)
+   # Option A: Load a premade scene 
    sample = load_premade_scenario(option=1, Rcom=Rcom, sigma=sigma)
    
    # Option B: Sample a random scenario
@@ -66,9 +66,10 @@ This can be done in the following steps:
 3. **Configure scenario parameters:**
    ```python
    directed = False          # True for directional antenna transmission
+   phi_agents = sample['phi_agents'] if directed else None
+   
    jammer_info = None        # Set jammer parameters for jammed scenarios
-   clustering = True         # Enable clustering of relaying agents
-   debug = False             # Enable debug output
+   # For jammed scenario, use: jammer_info = {'p_jammer': sample['p_j'], 'v_jammer': sample['dp_j']}
    ```
 
 4. **Run the baseline solver:**
@@ -82,10 +83,8 @@ This can be done in the following steps:
        beta=beta,
        c_pos=c_pos,
        c_phi=c_phi,
-       phi_agents=sample['phi_agents'],
-       jammer_info=jammer_info,
-       debug=debug,
-       clustering=clustering
+       phi_agents=phi_agents,
+       jammer_info=jammer_info
    )
    ```
 
