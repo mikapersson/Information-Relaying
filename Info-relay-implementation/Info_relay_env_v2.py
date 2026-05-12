@@ -39,7 +39,7 @@ class Info_relay_env(ParallelEnv):
                  continuous_actions = True, one_hot_vector = False, antenna_used = True, 
                  com_used = True, num_messages = 1, base_always_transmitting = True, 
                  observe_self = True, render_mode = None, using_half_velocity = False,
-                 pre_determined_scenario = True, num_CL_episodes = 0, num_r_help_episodes = 0):
+                 pre_determined_scenario = False, num_CL_episodes = 0, num_r_help_episodes = 0):
 
         max_cycles = round(1.5 * ( (1.1 * (num_agents + 4) + 2) * 5 + num_agents ))
         print("MAX CYCLES : ", max_cycles)
@@ -123,7 +123,7 @@ class Info_relay_env(ParallelEnv):
 
         # sets the action spaces for the two different continous action space cases
         if self.continuous_actions:
-            if self.one_hot_vector: # not updated
+            if self.one_hot_vector: # not updated/impelmented in the current version of the env
                 self.action_spaces = {
                 agent.name: spaces.Box(
                     low=np.concatenate((
@@ -139,15 +139,25 @@ class Info_relay_env(ParallelEnv):
                 for agent in self.world.agents
             }
 
-            else:
-                self.action_spaces = {
-                agent.name: spaces.Box(
-                    low=np.array([0.0, 0.0, 0.0]),  
-                    high=np.array([1.0, 1.0, 1.0]),  
-                    dtype=np.float64
-                ) 
-                for agent in self.world.agents
-                }
+            else: # the code currently running when using continous actions
+                if self.antenna_used:
+                    self.action_spaces = {
+                    agent.name: spaces.Box(
+                        low=np.array([-1.0, -1.0, -1.0], dtype=np.float32),  
+                        high=np.array([1.0, 1.0, 1.0], dtype=np.float32),  
+                        dtype=np.float32
+                    ) 
+                    for agent in self.world.agents
+                    }
+                else:
+                    self.action_spaces = {
+                    agent.name: spaces.Box(
+                        low=np.array([-1.0, -1.0], dtype=np.float32),  
+                        high=np.array([1.0, 1.0], dtype=np.float32),  
+                        dtype=np.float32
+                    ) 
+                    for agent in self.world.agents
+                    }
 
         else:
 
@@ -488,9 +498,9 @@ class Info_relay_env(ParallelEnv):
         if not self.continuous_actions: 
             infos = {agent.name: {"action_mask" : np.ones(len(self.action_mapping_dict), dtype=int)} for agent in self.world.agents}
         elif self.continuous_actions:
-            infos = {agent.name: None for agent in self.world.agents}
+            infos = {agent.name: {} for agent in self.world.agents}
         else:
-            infos = {agent.name: None for agent in self.world.agents} # this case (one discrete action) is probably not used but is nedded to be changed in that case
+            infos = {agent.name: {} for agent in self.world.agents} # this case (one discrete action) is probably not used but is nedded to be changed in that case
         
         if self.pre_determined_scenario and self.scenario_index_counter > 0:
             self.evaluation_logger.begin_episode(self.scenario_index_counter)
@@ -541,28 +551,16 @@ class Info_relay_env(ParallelEnv):
     # sets action when all outputs are continuous
     def set_continuous_action(self, action, agent):
 
-        # the one hot vector approch will probably not be used 
-        def set_com_action_one_hot_vector(action, agent):
-            buffer_size = agent.message_buffer_size + 1
-
-            agent.action.c = np.argmax(action[3 : 3 + buffer_size])  
-
-        def set_com_action_one_output(action, agent):
-            agent.action.c = round(action[3] * agent.message_buffer_size) # translates to integer
-
         agent.action.u = np.zeros(3)
-        agent.action.c = 0
 
         # 2x-1 transforms the input of [0,1] to [-1,1] (the NN outputs a number \in [0,1])
-        agent.action.u[0] = (2*action[0]-1)*self.a_max # x velocity (or acc)
-        agent.action.u[1] = (2*action[1]-1)*self.a_max # y velocity (or acc)
-        agent.action.u[2] = (2*action[2]-1)*self.omega_max # omega, controls theta
+        #agent.action.u[0] = (2*action[0]-1)*self.a_max # x velocity (or acc)
+        #agent.action.u[1] = (2*action[1]-1)*self.a_max # y velocity (or acc)
+        #agent.action.u[2] = (2*action[2]-1)*self.omega_max # omega, controls theta
 
-        # set com action
-        if self.one_hot_vector:
-            set_com_action_one_hot_vector(action, agent)
-        else:
-            set_com_action_one_output(action, agent)
+        agent.action.u[0] = action[0]*self.a_max
+        agent.action.u[1] = action[1]*self.a_max
+        agent.action.u[2] = action[2]*self.omega_max
 
 
     def set_action(self, action, agent):
@@ -663,7 +661,10 @@ class Info_relay_env(ParallelEnv):
         if self.render_mode == "human":
             self.render()
 
-        infos = {agent.name: {"action_mask" : np.ones(len(self.action_mapping_dict), dtype=int)} for agent in self.world.agents}
+        if self.continuous_actions:
+            infos = {agent.name: {} for agent in self.world.agents}
+        else:
+            infos = {agent.name: {"action_mask" : np.ones(len(self.action_mapping_dict), dtype=int)} for agent in self.world.agents}
 
         return observations, rewards, terminations, truncations, infos
     
@@ -686,8 +687,10 @@ class Info_relay_env(ParallelEnv):
         """
         penalties = 0
         if self.continuous_actions:
-            penalties += np.linalgnorm(agent.action.u[:2]**2*agent.movement_cost)
+            penalties += np.linalg.norm(agent.state.p_vel[:2]**2*agent.movement_cost)
             penalties += abs(agent.action.u[2]**2*agent.radar_cost)
+            if self.evaluation_logger is not None:
+                self.evaluation_logger.add_movement(np.linalg.norm(agent.state.p_vel))
         else:
             if abs(agent.action.u[0]) == abs(agent.action.u[1]): # both are 0 or max_vel (or max_vel/2)
                 penalties += np.linalg.norm(agent.state.p_vel)**2*agent.movement_cost
