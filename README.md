@@ -118,7 +118,7 @@ Any changes made in this repository are therefore automatically reflected inside
 ---
 
 ## Running the environment with pre-trained agent
-1. Make sure the repo is cloned with git lfs installed "git lfs install".
+Make sure the repo is cloned with git lfs installed "git lfs install".
     You will then receive the outputs/ folder containing checkpoints.
     Run Info-relay-implementation/BenchMARL/benchmarl/evaluate.py with
     a checkpioint file as argument. To run on evaluation set, change the default
