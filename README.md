@@ -8,40 +8,129 @@ The repository contains the information relaying environment simulator, a multi-
 
 ![demo gif](Media/Animations/Baseline/Trajectories/Comparison_all_scenarios/baseline_K5_row1_all_scenarios.gif)
 
-## Running the simulator in demo mode
-1. Run Info_relay.py with or without the --keyboard flag to run the environment without an agent
+## Setting Up the Simulator with BenchMARL
 
-## Running the simulator with BenchMARL (for training)
-Training of the info relay environment in the easiest way possible is currently using [BenchMARL](https://github.com/facebookresearch/BenchMARL).
+Training the Information Relay environment is currently easiest through [BenchMARL](https://github.com/facebookresearch/BenchMARL).
 
-In order to run the simulator together with BenchMARL, the following steps have to be made:
-1. Clone the Information Relaying repository and the BenchMARL submodule with:
-    - git clone --recurse-submodule url/to/info_relay_env
-    - it is also possible to clone without the --recurse-submodule flag and insteadrun the following commands after installation (cd Information-Relaying):
-        * git submodule init
-        * git submodule update
+---
 
-2. Now it is necessary to setup a virtual environment. Use python 3.11:
-    - python3.11 -m venv path/to/venv
-    Now install BenchMARL in the venv (The venv can be activated by running source path/to/env/bin/activate). The BenchMARL folder is located under Info-relay-implementation.
-    - pip install -e BenchMARL/
-    Then install all other requirements (which will overwrite some version given by BenchMARL - this is fine)
-    pip install -r Info-relay-implementation/benchmarl_integration/requirements.txt
+### 1. Clone the repository
 
-3. Now the info relay env and BenchMARL should be working and training can be run using 
-    - python BenchMARL/benchmarl/run.py algorithm=mappo task=customenv/info_relay
-    Changing the training parameters is done inside the benchmarl_conf folder. Experiment parameters (like lr and number of training episodes) are changed in the base_experiment.yaml file, while parameters in the info relay env (like the number of agents or if a jammer is to be used) are changed in info_relay.yaml. The files inside the BenchMARL folder that are a part of the info relay env are symbolic links of the files in this repository, as such, changes made in the files here are automatically applied inside BenchMARL.
+Clone the Information Relaying repository together with the BenchMARL submodule:
+
+```bash
+git clone --recurse-submodule url/to/info_relay_env
+```
+
+Alternatively, clone without submodules and initialize them manually afterward:
+
+```bash
+cd Information-Relaying
+
+git submodule init
+git submodule update
+```
+
+---
+
+### 2. Create a virtual environment
+
+Use **Python 3.11**:
+
+```bash
+python3.11 -m venv path/to/venv
+```
+
+Activate the virtual environment:
+
+```bash
+source path/to/venv/bin/activate
+```
+
+---
+
+### 3. Install BenchMARL and dependencies
+
+The `BenchMARL` folder is located inside `Info-relay-implementation`.
+
+Install BenchMARL in editable mode:
+
+```bash
+pip install -e BenchMARL/
+```
+
+Install the remaining requirements:
+
+```bash
+pip install -r Info-relay-implementation/benchmarl_integration/requirements.txt
+```
+
+> **Note:**  
+> Some package versions installed here will overwrite versions provided by BenchMARL. This is expected.
+
+---
+
+### 4. Start training
+
+Run training with:
+
+```bash
+python BenchMARL/benchmarl/run.py algorithm=mappo task=customenv/info_relay
+```
+
+It is also possible to do so-called multiruns with several different tasks or algorithms. One could for example queue several different parameter choices by using different info_relay.yaml files:
+
+```bash
+python BenchMARL/benchmarl/run.py -m algorithm=mappo task=customenv/info_relay,info_relay2
+```
+
+---
+
+## Configuration
+
+The hyperparameters and environment parameters are changed inside configuration files which are located in the `Info-relay-implementation/BenchMARL/benchmarl/conf` folder.
+
+### Training parameters
+
+Edit `experiment/base_experiment.yaml` to modify:
+- Learning rate (`lr`)
+- Number of training episodes
+- Batch sizes
+- Other experiment hyperparameters
+
+### Environment parameters
+
+Edit `task/customenv/info_relay.yaml` to modify:
+- Number of agents
+- Discrete or continous actions
+- Jammer settings
+- Communication settings
+- Other environment-specific parameters
+
+---
+
+## Environemt files and symbolic links
+
+The code for the Information relay environment is mainly located inside `info_relay_env_v2.py` and `info_relay_classes.py` files. The Information relay environment files inside the `BenchMARL` directory are symbolic links to the files in this repository.
+
+Any changes made in this repository are therefore automatically reflected inside BenchMARL.
+
+---
 
 ## Running the environment with pre-trained agent
 1. Make sure the repo is cloned with git lfs installed "git lfs install".
     You will then receive the outputs/ folder containing checkpoints.
     Run Info-relay-implementation/BenchMARL/benchmarl/evaluate.py with
     a checkpioint file as argument. To run on evaluation set, change the default
-    parameter boolean pre_determined_scenario in info_relay-env_v2.py to True.
+    parameter boolean pre_determined_scenario in info_relay_env_v2.py to True.
+
+---
 
 ## Running the baseline
 The baseline takes a scene (an initial state defining agent positions and antenna orientations, and distance between bases, and one of the four scenarios) and returns a solution to the relaying problem as a full state trajectory of all agents. 
 This can be done in the following steps:
+
+---
 
 1. **Set up environment parameters:**
    ```python
