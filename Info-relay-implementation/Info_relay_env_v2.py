@@ -44,6 +44,8 @@ class Info_relay_env(ParallelEnv):
         max_cycles = round(1.5 * ( (1.1 * (num_agents + 4) + 2) * 5 + num_agents ))
         print("MAX CYCLES : ", max_cycles)
 
+        #pre_determined_scenario = True
+
         self.render_mode = render_mode
         pygame.init()
         self.viewer = None
@@ -87,7 +89,7 @@ class Info_relay_env(ParallelEnv):
         if self.pre_determined_scenario:
             #self.eval_state_file = f"initial_state_pool/evaluation_states_K{self.n_agents}_n10000.csv"
             self.eval_state_file = f"Testing/Test_states/test_states_K{self.n_agents}_n10000.csv"
-            self.evaluation_logger = EvaluationLogger(self.antenna_used, self.num_emitters, self.n_agents, self.eval_state_file, f"MAPPO_evaluation_results_K{self.n_agents}_cpos0.5_cphi0.1_n10000_dir{int(self.antenna_used)}_jam{self.num_emitters}.csv")
+            self.evaluation_logger = EvaluationLogger(self.antenna_used, self.num_emitters, self.n_agents, self.eval_state_file, f"new_MADDPG_evaluation_results_K{self.n_agents}_cpos0.5_cphi0.1_n10000_dir{int(self.antenna_used)}_jam{self.num_emitters}.csv")
             self.pre_loaded_scenarios = []
             self.scenario_index_counter = 0
             self.evaluation_logger.update_episode_index(self.scenario_index_counter)
@@ -560,7 +562,8 @@ class Info_relay_env(ParallelEnv):
 
         agent.action.u[0] = action[0]*self.a_max
         agent.action.u[1] = action[1]*self.a_max
-        agent.action.u[2] = action[2]*self.omega_max
+        if self.antenna_used:
+            agent.action.u[2] = action[2]*self.omega_max
 
 
     def set_action(self, action, agent):
