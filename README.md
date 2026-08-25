@@ -72,7 +72,7 @@ pip install -r Info-relay-implementation/benchmarl_integration/requirements.txt
 
 ### 4. Start training
 
-Run training with:
+When training you can choose which algorithm to use. In the paper we used MAPPO and MADDPG. Run training with:
 
 ```bash
 python BenchMARL/benchmarl/run.py algorithm=mappo task=customenv/info_relay
@@ -81,7 +81,7 @@ python BenchMARL/benchmarl/run.py algorithm=mappo task=customenv/info_relay
 It is also possible to do so-called multiruns with several different tasks or algorithms. One could for example queue several different parameter choices by using different info_relay.yaml files:
 
 ```bash
-python BenchMARL/benchmarl/run.py -m algorithm=mappo task=customenv/info_relay,info_relay2
+python BenchMARL/benchmarl/run.py -m algorithm=mappo/maddpg task=customenv/info_relay,info_relay2
 ```
 
 ---
@@ -109,7 +109,7 @@ Edit `task/customenv/info_relay.yaml` to modify:
 
 ---
 
-## Environemt files and symbolic links
+## Environment files and symbolic links
 
 The code for the Information relay environment is mainly located inside `info_relay_env_v2.py` and `info_relay_classes.py` files. The Information relay environment files inside the `BenchMARL` directory are symbolic links to the files in this repository.
 
@@ -120,9 +120,18 @@ Any changes made in this repository are therefore automatically reflected inside
 ## Running the environment with pre-trained agent
 Make sure the repo is cloned with git lfs installed "git lfs install".
     You will then receive the outputs/ folder containing checkpoints.
-    Run Info-relay-implementation/BenchMARL/benchmarl/evaluate.py with
-    a checkpioint file as argument. To run on evaluation set, change the default
+    Run 
+    ```bash
+    python BenchMARL/benchmarl/evaluate.py path/to/checkpoint_file.pt
+    ```
+
+    To run on the evaluation set (using the same inital 10000 conditions each time it is run), change the default
     parameter boolean pre_determined_scenario in info_relay_env_v2.py to True.
+
+---
+
+## Evaluating the results
+The scripts used to generate the plots and calculate the evalution metrics are located inside `Evaluation/evaluate.py`. To run the different scripts, choose eval_mode inside `main()`. `eval_mode = 16` results generates the heatmaps from the paper. 
 
 ---
 
